@@ -76,38 +76,51 @@ button {
 }
 
 div#videos {
-    display: flex;
-    flex-direction: row;
-    flex-wrap: wrap;
+    width: 100%;
+    height: auto;
+    columns: 1;
+    column-gap: 4px;
+    overflow: hidden;
 }
 
-div#videos > video {
+.video-box {
+    width: 100%;
+    height: auto;
+    position: relative;
+    display:block;
+    overflow: hidden;
+}
+
+.video-box video {
+    width: 100%;
+    /*height: auto;*/
     background: black;
-    width: 640px;
-    height: 100%;
-    display: block;
-    margin: 1em;
+    object-fit: cover;
 }
 
+.mutedPeers {
+    border: 3px solid red;
+    overflow: hidden;
+}
 
 #chatContainer {
     display: flex;
     flex-direction: column;
     margin-top: 20px;
   }
-  
+
   #messages {
     height: 150px;
     overflow-y: scroll;
     background: #f4f4f8;
     padding: 10px;
   }
-  
+
   #newMessage {
     height: 50px;
     margin-top: 10px;
   }
-  
+
   #sendButton {
     margin-top: 5px;
   }
