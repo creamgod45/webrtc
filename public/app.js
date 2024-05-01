@@ -104,6 +104,22 @@ async function receiveICECandidates(peerConnection, roomRef, remoteEndpointID) {
     });
 }
 
+async function hangUp() {
+    const tracks = document.querySelector('#localVideo').srcObject.getTracks();
+    tracks.forEach(track => {
+        track.stop();
+    });
+
+    document.querySelector('#localVideo').srcObject = null;
+    document.querySelector('#cameraBtn').disabled = false;
+    document.querySelector('#joinBtn').disabled = true;
+    document.querySelector('#createBtn').disabled = true;
+    document.querySelector('#hangupBtn').disabled = true;
+    document.querySelector('#currentRoom').innerText = '';
+
+    location.reload();
+}
+
 async function addUserToRoom(roomRef) {
     await roomRef.get().then(async snapshot => {
         if (!snapshot.exists) {
@@ -121,9 +137,12 @@ async function addUserToRoom(roomRef) {
     });
 }
 
+let users={};
+
 async function receiveAnswer(peerConnection, roomRef, peerId) {
     roomRef.collection(nameId).doc('SDP').collection('answer').doc(peerId).onSnapshot(async snapshot => {
         if (snapshot.exists) {
+            users[peerId]=true;
             const data = snapshot.data();
             console.log('Got remote description: ', data.answer);
             const rtcSessionDescription = new RTCSessionDescription(data.answer);
@@ -191,6 +210,7 @@ async function sendAnswer(answer, roomRef, peerId) {
 async function receiveOffer(peerConnection1, roomRef, peerId) {
     await roomRef.collection(nameId).doc('SDP').collection('offer').doc(peerId).get().then(async snapshot => {
         if (snapshot.exists) {
+            users[peerId]=true;
             const data = snapshot.data();
             console.log(data);
             const offer = data.offer;
@@ -204,6 +224,7 @@ function closeConnection(peerConnection, roomRef, peerId) {
     roomRef.collection('disconnected').where('disconnected', '==', peerId).onSnapshot(querySnapshot => {
         querySnapshot.forEach(snapshot => {
             if (snapshot.exists) {
+                users[peerId]=false;
                 document.getElementById(peerId).srcObject.getTracks().forEach(track => track.stop());
                 peerConnection.close();
                 document.getElementById(peerId).remove();
@@ -307,20 +328,19 @@ function init() {
     muteToggleEnable();
 }
 
-function backgroudrun(roomRef){
+function backgroudrun(){
     let ousers = document.querySelector("#online-users");
     if(ousers!==null){
         setInterval(async ()=>{
             ousers.innerHTML="";
-            await roomRef.get().then(async snapshot => {
-                let names = snapshot.data().names;
-                for (let name of names) {
+            for (let key in users) {
+                if (users[key] === true) {
                     let htmlliElement = document.createElement("li");
-                    htmlliElement.innerText = name;
+                    htmlliElement.innerText = key;
                     ousers.appendChild(htmlliElement);
                 }
-            });
-        }, 5000);
+            }
+        }, 3000);
     }
 }
 
@@ -357,7 +377,7 @@ async function createRoom() {
     document.querySelector(
         '#currentRoom').innerHTML = `房間ID: <input type="text" value="${roomRef.id}"> - 你的名子 ${nameId}!`;
 
-    backgroudrun(roomRef);
+    backgroudrun();
 
   document.querySelector('#sendButton').addEventListener('click', sendMessage);
   receiveMessages(); // 當頁面加載時開始接收消息
@@ -426,7 +446,7 @@ async function joinRoomById(rid) {
 
         signalDisconnect(roomRef);
 
-        backgroudrun(roomRef);
+        backgroudrun();
 
         document.querySelector('#sendButton').addEventListener('click', sendMessage);
         receiveMessages(); // 當頁面加載時開始接收消息
@@ -448,21 +468,6 @@ async function openUserMedia(e) {
     document.querySelector('#hangupBtn').disabled = false;
 }
 
-async function hangUp() {
-    const tracks = document.querySelector('#localVideo').srcObject.getTracks();
-    tracks.forEach(track => {
-        track.stop();
-    });
-
-    document.querySelector('#localVideo').srcObject = null;
-    document.querySelector('#cameraBtn').disabled = false;
-    document.querySelector('#joinBtn').disabled = true;
-    document.querySelector('#createBtn').disabled = true;
-    document.querySelector('#hangupBtn').disabled = true;
-    document.querySelector('#currentRoom').innerText = '';
-
-    location.reload();
-}
 
 async function peerAcceptConnection(peerId, roomRef) {
     console.log('Create PeerConnection with configuration: ', configuration)
