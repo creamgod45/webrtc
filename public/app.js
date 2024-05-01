@@ -28,6 +28,18 @@ function generateRandomString(length) {
   return result;
 }
 
+function htmlencode(txt) {
+  let div = document.createElement("div");
+  div.appendChild(document.createTextNode(txt));
+  return div.innerHTML;
+}
+
+function htmldecode(txt) {
+  let div = document.createElement("div");
+  div.innerHTML = txt;
+  return div.innerText || div.textContent;
+}
+
 function init() {
   document.querySelector('#cameraBtn').addEventListener('click', openUserMedia);
   document.querySelector('#hangupBtn').addEventListener('click', hangUp);
@@ -113,7 +125,7 @@ async function createRoom() {
   });
   // Listen for remote ICE candidates above
 
-  
+
   document.querySelector('#sendButton').addEventListener('click', sendMessage);
   receiveMessages(); // 當頁面加載時開始接收消息
 }
@@ -200,7 +212,7 @@ async function joinRoomById(roomId) {
     });
     // Listening for remote ICE candidates above
   }
-  
+
   document.querySelector('#sendButton').addEventListener('click', sendMessage);
   receiveMessages(); // 當頁面加載時開始接收消息
 }
@@ -297,7 +309,7 @@ function sendMessage() {
   const messagesRef = roomRef.collection('messages');
 
   messagesRef.add({
-    text: messageText,
+    text: htmlencode(messageText),
     timestamp: firebase.firestore.FieldValue.serverTimestamp(),
     senderId: document.querySelector("#username").value // 這裡可以使用一個標識用戶的方式，如用戶名或用戶ID
   }).then(() => {
@@ -312,7 +324,7 @@ function receiveMessages() {
   const db = firebase.firestore();
   const roomRef = db.collection('rooms').doc(roomId);
   const messagesRef = roomRef.collection('messages');
-  
+
   document.querySelector("#sendButton").disabled = false;
   document.querySelector("#newMessage").disabled = false;
 
@@ -330,7 +342,7 @@ function receiveMessages() {
 function displayMessage(message) {
   const messagesContainer = document.querySelector('#messages');
   const messageElement = document.createElement('div');
-  messageElement.textContent = message.senderId + ": " + message.text; // 為簡單起見，這裡只顯示文本
+  messageElement.textContent = htmldecode(message.senderId + ": " + message.text); // 為簡單起見，這裡只顯示文本
   messagesContainer.appendChild(messageElement);
 }
 
