@@ -23,7 +23,7 @@ function generateRandomString(length) {
   let result = '';
   const charactersLength = characters.length;
   for (let i = 0; i < length; i++) {
-      result += characters.charAt(Math.floor(Math.random() * charactersLength));
+    result += characters.charAt(Math.floor(Math.random() * charactersLength));
   }
   return result;
 }
@@ -79,7 +79,7 @@ async function createRoom() {
   roomId = roomRef.id;
   console.log(`New room created with SDP offer. Room ID: ${roomRef.id}`);
   document.querySelector(
-      '#currentRoom').innerText = `Current room is ${roomRef.id} - You are the caller!`;
+    '#currentRoom').innerHTML = `現在房間ID: <input type="text" value="${roomRef.id}" readonly> - 你已經連線了`;
   // Code for creating a room above
 
   peerConnection.addEventListener('track', event => {
@@ -112,6 +112,10 @@ async function createRoom() {
     });
   });
   // Listen for remote ICE candidates above
+
+  
+  document.querySelector('#sendButton').addEventListener('click', sendMessage);
+  receiveMessages(); // 當頁面加載時開始接收消息
 }
 
 function joinRoom() {
@@ -119,13 +123,13 @@ function joinRoom() {
   document.querySelector('#joinBtn').disabled = true;
 
   document.querySelector('#confirmJoinBtn').
-      addEventListener('click', async () => {
-        roomId = document.querySelector('#room-id').value;
-        console.log('Join room: ', roomId);
-        document.querySelector(
-            '#currentRoom').innerText = `Current room is ${roomId} - You are the callee!`;
-        await joinRoomById(roomId);
-      }, {once: true});
+    addEventListener('click', async () => {
+      roomId = document.querySelector('#room-id').value;
+      console.log('Join room: ', roomId);
+      document.querySelector(
+        '#currentRoom').innerHTML = `加入 <input type="text" value="${roomId}" readonly> - 現在已經連線囉!!`;
+      await joinRoomById(roomId);
+    }, { once: true });
   roomDialog.open();
 }
 
@@ -134,6 +138,10 @@ async function joinRoomById(roomId) {
   const roomRef = db.collection('rooms').doc(`${roomId}`);
   const roomSnapshot = await roomRef.get();
   console.log('Got room:', roomSnapshot.exists);
+  if (roomSnapshot.exists === false) {
+    document.querySelector(
+      '#currentRoom').innerText = `加入失敗請重新連接`;
+  }
 
   if (roomSnapshot.exists) {
     console.log('Create PeerConnection with configuration: ', configuration);
@@ -192,11 +200,14 @@ async function joinRoomById(roomId) {
     });
     // Listening for remote ICE candidates above
   }
+  
+  document.querySelector('#sendButton').addEventListener('click', sendMessage);
+  receiveMessages(); // 當頁面加載時開始接收消息
 }
 
 async function openUserMedia(e) {
   const stream = await navigator.mediaDevices.getUserMedia(
-      {video: false, audio: {'echoCancellation': true}});
+    { video: false, audio: { 'echoCancellation': true } });
   document.querySelector('#localVideo').srcObject = stream;
   localStream = stream;
   remoteStream = new MediaStream();
@@ -252,11 +263,18 @@ async function hangUp(e) {
 function registerPeerConnectionListeners() {
   peerConnection.addEventListener('icegatheringstatechange', () => {
     console.log(
-        `ICE gathering state changed: ${peerConnection.iceGatheringState}`);
+      `ICE gathering state changed: ${peerConnection.iceGatheringState}`);
   });
 
   peerConnection.addEventListener('connectionstatechange', () => {
     console.log(`Connection state change: ${peerConnection.connectionState}`);
+
+    if (peerConnection.connectionState === 'disconnected' ||
+      peerConnection.connectionState === 'failed') {
+      hangUp();
+      alert('連線已斷開，即將關閉會話');
+      location.reload();
+    }
   });
 
   peerConnection.addEventListener('signalingstatechange', () => {
@@ -265,8 +283,62 @@ function registerPeerConnectionListeners() {
 
   peerConnection.addEventListener('iceconnectionstatechange ', () => {
     console.log(
-        `ICE connection state change: ${peerConnection.iceConnectionState}`);
+      `ICE connection state change: ${peerConnection.iceConnectionState}`);
   });
 }
+
+function sendMessage() {
+  const messageInput = document.querySelector('#newMessage');
+  const messageText = messageInput.value;
+  if (messageText.trim() === '') return;
+
+  const db = firebase.firestore();
+  const roomRef = db.collection('rooms').doc(roomId);
+  const messagesRef = roomRef.collection('messages');
+
+  messagesRef.add({
+    text: messageText,
+    timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+    senderId: document.querySelector("#username").value // 這裡可以使用一個標識用戶的方式，如用戶名或用戶ID
+  }).then(() => {
+    console.log("Message sent!");
+    messageInput.value = ''; // 清空輸入框
+    scrollToBottom(); // 確保聊天視窗滾動到最新消息
+  }).catch(error => {
+    console.error("Error sending message: ", error);
+  });
+}
+function receiveMessages() {
+  const db = firebase.firestore();
+  const roomRef = db.collection('rooms').doc(roomId);
+  const messagesRef = roomRef.collection('messages');
+  
+  document.querySelector("#sendButton").disabled = false;
+  document.querySelector("#newMessage").disabled = false;
+
+  messagesRef.orderBy('timestamp').onSnapshot(snapshot => {
+    snapshot.docChanges().forEach(change => {
+      if (change.type === 'added') {
+        const messageData = change.doc.data();
+        displayMessage(messageData); // 將接收到的消息顯示在界面上
+      }
+    });
+    scrollToBottom(); // 確保聊天視窗滾動到最新消息
+  });
+}
+
+function displayMessage(message) {
+  const messagesContainer = document.querySelector('#messages');
+  const messageElement = document.createElement('div');
+  messageElement.textContent = message.senderId + ": " + message.text; // 為簡單起見，這裡只顯示文本
+  messagesContainer.appendChild(messageElement);
+}
+
+function scrollToBottom() {
+  const messagesContainer = document.querySelector('#messages');
+  messagesContainer.scrollTop = messagesContainer.scrollHeight;
+}
+
+
 
 init();

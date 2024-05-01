@@ -88,3 +88,26 @@ div#videos > video {
     display: block;
     margin: 1em;
 }
+
+
+#chatContainer {
+    display: flex;
+    flex-direction: column;
+    margin-top: 20px;
+  }
+  
+  #messages {
+    height: 150px;
+    overflow-y: scroll;
+    background: #f4f4f8;
+    padding: 10px;
+  }
+  
+  #newMessage {
+    height: 50px;
+    margin-top: 10px;
+  }
+  
+  #sendButton {
+    margin-top: 5px;
+  }

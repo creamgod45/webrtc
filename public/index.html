@@ -18,23 +18,31 @@
     <link rel="stylesheet" type="text/css" href="main.css">
 </head>
 <body>
-<h1>Welcome to FirebaseRTC!</h1>
+<h1>語音系統</h1>
+<input type="text" id='username' value="用戶">
+<div id="chatContainer">
+    <h2>聊天室</h1>
+    <div id="messages"></div>
+    <textarea id="newMessage" placeholder="輸入訊息..." disabled></textarea>
+    <button id="sendButton" disabled>發送</button>
+</div>
+<h2>語音連線</h1>
 <div id="buttons">
     <button class="mdc-button mdc-button--raised" id="cameraBtn">
         <i class="material-icons mdc-button__icon" aria-hidden="true">perm_camera_mic</i>
-        <span class="mdc-button__label">Open camera & microphone</span>
+        <span class="mdc-button__label">開起麥克風</span>
     </button>
     <button class="mdc-button mdc-button--raised" disabled id="createBtn">
         <i class="material-icons mdc-button__icon" aria-hidden="true">group_add</i>
-        <span class="mdc-button__label">Create room</span>
+        <span class="mdc-button__label">建立房間</span>
     </button>
     <button class="mdc-button mdc-button--raised" disabled id="joinBtn">
         <i class="material-icons mdc-button__icon" aria-hidden="true">group</i>
-        <span class="mdc-button__label">Join room</span>
+        <span class="mdc-button__label">加入房間</span>
     </button>
     <button class="mdc-button mdc-button--raised" disabled id="hangupBtn">
         <i class="material-icons mdc-button__icon" aria-hidden="true">close</i>
-        <span class="mdc-button__label">Hangup</span>
+        <span class="mdc-button__label">斷線</span>
     </button>
 </div>
 <div>
@@ -52,9 +60,9 @@
      aria-describedby="my-dialog-content">
     <div class="mdc-dialog__container">
         <div class="mdc-dialog__surface">
-            <h2 class="mdc-dialog__title" id="my-dialog-title">Join room</h2>
+            <h2 class="mdc-dialog__title" id="my-dialog-title">加入房間</h2>
             <div class="mdc-dialog__content" id="my-dialog-content">
-                Enter ID for room to join:
+                輸入房間ID:
                 <div class="mdc-text-field">
                     <input type="text" id="room-id" class="mdc-text-field__input">
                     <div class="mdc-line-ripple"></div>
@@ -62,11 +70,11 @@
             </div>
             <footer class="mdc-dialog__actions">
                 <button type="button" class="mdc-button mdc-dialog__button" data-mdc-dialog-action="no">
-                    <span class="mdc-button__label">Cancel</span>
+                    <span class="mdc-button__label">取消</span>
                 </button>
                 <button id="confirmJoinBtn" type="button" class="mdc-button mdc-dialog__button"
                         data-mdc-dialog-action="yes">
-                    <span class="mdc-button__label">Join</span>
+                    <span class="mdc-button__label">加入</span>
                 </button>
             </footer>
         </div>
