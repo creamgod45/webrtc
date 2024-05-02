@@ -457,8 +457,14 @@ async function joinRoomById(rid) {
 }
 
 async function openUserMedia(e) {
-    const stream = await navigator.mediaDevices.getUserMedia(
-        {video: true, audio: true});
+    const stream = await navigator.mediaDevices.getUserMedia({
+        video: false,
+        audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+        },
+    });
     document.querySelector('#localVideo').srcObject = stream;
 
     console.log('Stream:', document.querySelector('#localVideo').srcObject);
