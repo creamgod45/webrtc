@@ -12,18 +12,42 @@ services:
     networks:
       - internal
     restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    networks:
+      - internal
+    restart: always
+    volumes:
+      - redis_data:/data
 
   app:
-    build: .
+    build: 
+      context: .
+      dockerfile: Dockerfile
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
     environment:
       NODE_ENV: production
       DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
       REDIS_HOST: redis
+      SESSION_SECRET: ${SESSION_SECRET}
+      COOKIE_SECRET: ${COOKIE_SECRET}
+      CORS_ORIGIN: ${CORS_ORIGIN}
     networks:
       - internal
+    # 指定啟動命令
+    command: node server.js
     deploy:
       replicas: 3
       update_config:
@@ -31,6 +55,7 @@ services:
         delay: 10s
       restart_policy:
         condition: on-failure
+        max_attempts: 3
     restart: always
 
   nginx:
@@ -43,25 +68,18 @@ services:
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
       - ./ssl:/etc/nginx/ssl:ro
-      - certbot_data:/var/www/certbot
+      - ./public:/var/www/static:ro
     networks:
       - internal
       - external
     restart: always
 
-  # Let's Encrypt 自動 SSL
   certbot:
     image: certbot/certbot
     volumes:
       - ./ssl:/etc/letsencrypt
       - certbot_data:/var/www/certbot
     entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
-
-  redis:
-    image: redis:7-alpine
-    networks:
-      - internal
-    restart: always
 
 networks:
   internal:
@@ -71,4 +89,5 @@ networks:
 
 volumes:
   postgres_data:
+  redis_data:
   certbot_data:
