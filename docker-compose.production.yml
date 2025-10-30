@@ -38,14 +38,14 @@ services:
       - internal
     # 指定啟動命令
     command: node server.js
-    deploy:
-      replicas: 3
-      update_config:
-        parallelism: 1
-        delay: 10s
-      restart_policy:
-        condition: on-failure
-        max_attempts: 3
+    #deploy:
+    #  replicas: 3
+    #  update_config:
+    #    parallelism: 1
+    #    delay: 10s
+    #  restart_policy:
+    #    condition: on-failure
+    #    max_attempts: 3
     restart: always
 
   nginx:
