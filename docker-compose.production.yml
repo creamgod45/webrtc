@@ -17,15 +17,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-
-  redis:
-    image: redis:7-alpine
-    networks:
-      - internal
-    restart: always
-    volumes:
-      - redis_data:/data
-
   app:
     build: 
       context: .
@@ -40,7 +31,6 @@ services:
       DB_NAME: ${DB_NAME}
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
-      REDIS_HOST: redis
       SESSION_SECRET: ${SESSION_SECRET}
       COOKIE_SECRET: ${COOKIE_SECRET}
       CORS_ORIGIN: ${CORS_ORIGIN}
@@ -82,4 +72,3 @@ networks:
 
 volumes:
   postgres_data:
-  redis_data:
