@@ -1,9 +1,6 @@
 // Initialize Socket.IO connection
 const socket = io();
 
-// Material Design Components initialization
-mdc.ripple.MDCRipple.attachTo(document.querySelector('.mdc-button'));
-
 // WebRTC Configuration
 const configuration = {
   iceServers: [
@@ -93,6 +90,7 @@ socket.on('receive-answer', async (data) => {
   if (pc) {
     await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
     users[data.fromUser] = true;
+    updateUserCount();
   }
 });
 
@@ -200,17 +198,26 @@ function handleRemoteTrack(peerId, stream) {
   let videoElement = document.getElementById(peerId);
 
   if (!videoElement) {
-    numberOfDisplayedStreams = Math.min(numberOfDisplayedStreams + 1, 3);
     numberOfConnectedPeers += 1;
 
-    document.getElementById('videos').style.columns = numberOfDisplayedStreams;
+    // Create video box container
+    const peerNode = document.createElement('div');
+    peerNode.className = 'video-box';
 
-    const peerNode = document.getElementsByClassName('video-box')[0].cloneNode();
-    const clonedVideo = document.getElementById('localVideo').cloneNode();
-    clonedVideo.id = peerId;
-    clonedVideo.muted = false;
+    // Create video element
+    const videoEl = document.createElement('video');
+    videoEl.id = peerId;
+    videoEl.autoplay = true;
+    videoEl.playsinline = true;
+    videoEl.muted = false;
 
-    peerNode.appendChild(clonedVideo);
+    // Create label
+    const label = document.createElement('div');
+    label.className = 'video-label';
+    label.textContent = peerId;
+
+    peerNode.appendChild(videoEl);
+    peerNode.appendChild(label);
     document.getElementById('videos').appendChild(peerNode);
 
     videoElement = document.getElementById(peerId);
@@ -227,20 +234,23 @@ function handlePeerDisconnect(peerId) {
     delete peerConnections[peerId];
   }
 
-  // Remove video element
+  // Remove video element and its container
   const videoElement = document.getElementById(peerId);
   if (videoElement) {
     if (videoElement.srcObject) {
       videoElement.srcObject.getTracks().forEach(track => track.stop());
     }
-    videoElement.remove();
+    // Remove the parent video-box container
+    const videoBox = videoElement.closest('.video-box');
+    if (videoBox) {
+      videoBox.remove();
+    }
 
     numberOfConnectedPeers = Math.max(0, numberOfConnectedPeers - 1);
-    numberOfDisplayedStreams = numberOfConnectedPeers < 2 ? numberOfDisplayedStreams - 1 : 3;
-    document.getElementById('videos').style.columns = numberOfDisplayedStreams;
   }
 
   users[peerId] = false;
+  updateUserCount();
 }
 
 function registerPeerConnectionListeners(pc, peerId) {
@@ -501,34 +511,36 @@ socket.on('receive-message', (data) => {
 
 // 顯示消息到聊天界面
 function displayMessage(senderId, text, timestamp) {
-  const messageList = document.querySelector('#messageList');
+  const messageList = document.querySelector('#messages');
+  if (!messageList) return;
+
   const messageItem = document.createElement('div');
   messageItem.className = 'message-item';
-  
+
   const time = new Date(timestamp).toLocaleTimeString('zh-TW', {
     hour: '2-digit',
     minute: '2-digit'
   });
-  
+
   // 使用 textContent 而不是 innerHTML 來防止 XSS
   const senderSpan = document.createElement('span');
   senderSpan.className = 'message-sender';
   senderSpan.textContent = `${senderId}:`;
-  
+
   const textSpan = document.createElement('span');
   textSpan.className = 'message-text';
   textSpan.textContent = text; // 使用 textContent 自動轉義
-  
+
   const timeSpan = document.createElement('span');
   timeSpan.className = 'message-time';
   timeSpan.textContent = time;
-  
+
   messageItem.appendChild(senderSpan);
   messageItem.appendChild(textSpan);
   messageItem.appendChild(timeSpan);
-  
+
   messageList.appendChild(messageItem);
-  
+
   // 自動滾動到最新消息
   messageList.scrollTop = messageList.scrollHeight;
 }
@@ -593,6 +605,14 @@ function scrollToBottom() {
 }
 
 // Utility Functions
+function updateUserCount() {
+  const onlineCount = Object.values(users).filter(status => status === true).length;
+  const userCountEl = document.getElementById('userCount');
+  if (userCountEl) {
+    userCountEl.textContent = onlineCount;
+  }
+}
+
 function backgroundRun() {
   const ousers = document.querySelector('#online-users');
   if (ousers !== null) {
@@ -605,6 +625,7 @@ function backgroundRun() {
           ousers.appendChild(htmlliElement);
         }
       }
+      updateUserCount();
     }, 3000);
   }
 }
@@ -687,9 +708,16 @@ function init() {
 
   if (params.get('roomId')) {
     console.log('Auto-joining room from URL');
-    document.querySelector('#room-id').value = params.get('roomId');
-    openUserMedia();
-    joinRoom();
+    const urlRoomId = params.get('roomId');
+    document.querySelector('#room-id').value = urlRoomId;
+
+    // Auto-join: first open media, then join room automatically
+    openUserMedia().then(() => {
+      // Wait a bit for media to initialize
+      setTimeout(() => {
+        joinRoomById(urlRoomId);
+      }, 500);
+    });
   }
 
   document.querySelector('#cameraBtn').addEventListener('click', openUserMedia);
