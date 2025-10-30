@@ -9,7 +9,6 @@ const User = sequelize.define('User', {
   },
   user_id: {
     type: DataTypes.STRING,
-    unique: true,
     allowNull: false,
     comment: 'User identifier (e.g., user1, user2)'
   },
@@ -44,13 +43,15 @@ const User = sequelize.define('User', {
   tableName: 'users',
   indexes: [
     {
+      unique: true,
+      fields: ['user_id', 'room_id'],
+      name: 'unique_user_per_room'
+    },
+    {
       fields: ['room_id']
     },
     {
       fields: ['socket_id']
-    },
-    {
-      fields: ['user_id', 'room_id']
     }
   ]
 });

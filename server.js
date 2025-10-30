@@ -59,6 +59,14 @@ app.use(helmet({
   }
 }));
 
+app.use((err, req, res, next) => {
+    console.error(err.stack);
+    res.status(500).json({
+        error: 'Internal Server Error',
+        message: 'Something went wrong'
+    });
+});
+
 // Make io accessible in routes
 app.set('io', io);
 
