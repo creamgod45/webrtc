@@ -8,12 +8,8 @@
     <script src="https://unpkg.com/material-components-web@latest/dist/material-components-web.min.js"></script>
     <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
 
-    <!-- update the version number as needed -->
-    <script defer src="/__/firebase/7.13.1/firebase-app.js"></script>
-    <!-- include only the Firebase features as you need -->
-    <script defer src="/__/firebase/7.13.1/firebase-firestore.js"></script>
-    <!-- initialize the SDK after all desired features are loaded -->
-    <script defer src="/__/firebase/init.js"></script>
+    <!-- Socket.IO Client -->
+    <script src="https://cdn.socket.io/4.6.0/socket.io.min.js" integrity="sha384-c79GN5VsunZvi+Q/WObgk2in0CbZsHnjEqvFxC5DxHn9lTfNce2WW6h2pH6u/kF+" crossorigin="anonymous"></script>
 
     <link rel="stylesheet" type="text/css" href="main.css">
 </head>
@@ -24,8 +20,8 @@
     <ul id="online-users"></ul>
     <h2>聊天室</h2>
     <div id="messages"></div>
-    <textarea id="newMessage" placeholder="輸入訊息..." disabled></textarea>
-    <button id="sendButton" disabled>發送</button>
+    <textarea id="newMessage" placeholder="輸入訊息..."></textarea>
+    <button id="sendButton">發送</button>
 </div>
 <h2>語音連線</h2>
 <div id="buttons">
