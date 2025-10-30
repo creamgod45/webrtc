@@ -4,9 +4,8 @@ const {Op} = require('sequelize');
 
 function initializeSocket(httpServer) {
     const io = new Server(httpServer, {
-        cors: {
-            origin: process.env.CORS_ORIGIN || '*', methods: ['GET', 'POST']
-        }
+        path: '/socket.io',
+        cors: { origin: process.env.CORS_ORIGIN || '*', methods: ['GET','POST'] }
     });
 
     io.on('connection', (socket) => {

@@ -18,11 +18,11 @@ const PORT = process.env.PORT || 3000;
 const io = initializeSocket(server);
 
 // Middleware
+app.set('trust proxy', 1);
 app.use(compression());
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
 // Security middleware with CSP configuration for Material Design and WebSocket
 app.use(helmet({
   contentSecurityPolicy: {
