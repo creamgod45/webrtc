@@ -1,0 +1,90 @@
+version: '3.8'
+
+services: # PostgreSQL 數據庫服務
+  postgres:
+    image: postgres:15-alpine
+    container_name: webrtc-postgres
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - webrtc-network
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${DB_USER}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Node.js 應用 (可以運行多個實例)
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: webrtc-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      SESSION_SECRET: ${SESSION_SECRET}
+      COOKIE_SECRET: ${COOKIE_SECRET}
+    ports:
+      - "3000:3000"
+    networks:
+      - webrtc-network
+    restart: unless-stopped
+    volumes:
+      - ./logs:/app/logs
+    deploy:
+      replicas: 3  # 運行 3 個實例
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  # Nginx 反向代理
+  nginx:
+    image: nginx:alpine
+    container_name: webrtc-nginx
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+      - ./public:/var/www/static:ro
+    networks:
+      - webrtc-network
+    restart: unless-stopped
+
+  # Redis (可選 - 用於 Session 存儲)
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: webrtc-redis
+  #   ports:
+  #     - "6379:6379"
+  #   networks:
+  #     - webrtc-network
+  #   restart: unless-stopped
+  #   volumes:
+  #     - redis_data:/data
+
+networks:
+  webrtc-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  #redis_data:
