@@ -63,5 +63,17 @@ node_modules/
 
 # dotenv environment variables file
 .env
+.env.local
+.env.*.local
 
+# IDE
 .idea
+.vscode/
+
+# Database
+*.sqlite
+*.db
+
+# OS files
+.DS_Store
+Thumbs.db
