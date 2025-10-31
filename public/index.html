@@ -31,6 +31,15 @@
 
     <!-- Main Container -->
     <div class="main-container">
+        <!-- Mobile Chat Toggle Button -->
+        <button class="mobile-chat-toggle" id="mobileChatToggle" aria-label="切換聊天室">
+            <i class="material-icons">chat</i>
+            <span class="unread-badge" id="unreadBadge" style="display: none;">0</span>
+        </button>
+
+        <!-- Chat Overlay (for mobile) -->
+        <div class="chat-overlay" id="chatOverlay"></div>
+
         <!-- Left Panel: Video Area -->
         <div class="left-panel">
             <!-- Control Bar -->

@@ -61,11 +61,13 @@ socket.on('user-joined', async (data) => {
   console.log(`👤 User joined: ${data.userId}`);
   // Don't initiate connection here - the new user will send us an offer
   users[data.userId] = false;
+  displaySystemMessage(`👋 ${data.userId} 加入了房間`, 'info');
 });
 
 socket.on('user-left', (data) => {
   console.log(`👋 User left: ${data.userId}`);
   handlePeerDisconnect(data.userId);
+  displaySystemMessage(`👋 ${data.userId} 離開了房間`, 'info');
 });
 
 socket.on('receive-offer', async (data) => {
@@ -157,8 +159,21 @@ async function createPeerConnection(peerId, isInitiator) {
     console.log(`Connection state with ${peerId}: ${pc.connectionState}`);
     if (pc.connectionState === 'connected') {
       users[peerId] = true;
-    } else if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+      displaySystemMessage(`✅ ${peerId} 已連結`, 'success');
+    } else if (pc.connectionState === 'failed') {
+      displaySystemMessage(`❌ ${peerId} 連線失敗 (正在重試連線)`, 'error');
+      // Auto retry connection
+      setTimeout(() => {
+        console.log(`Retrying connection with ${peerId}...`);
+        if (pc.iceConnectionState === 'failed') {
+          pc.restartIce?.();
+        }
+      }, 2000);
+    } else if (pc.connectionState === 'closed') {
       handlePeerDisconnect(peerId);
+      displaySystemMessage(`${peerId} 已離開`, 'info');
+    } else if (pc.connectionState === 'disconnected') {
+      displaySystemMessage(`⚠️ ${peerId} 連線中斷`, 'error');
     }
   });
 
@@ -166,6 +181,7 @@ async function createPeerConnection(peerId, isInitiator) {
   pc.addEventListener('iceconnectionstatechange', async () => {
     if (pc.iceConnectionState === 'failed') {
       console.log('ICE connection failed, restarting...');
+      displaySystemMessage(`🔄 正在重新連接 ${peerId}...`, 'info');
       if (pc.restartIce) {
         pc.restartIce();
       } else if (isInitiator) {
@@ -203,6 +219,10 @@ function handleRemoteTrack(peerId, stream) {
     // Create video box container
     const peerNode = document.createElement('div');
     peerNode.className = 'video-box';
+    peerNode.id = `video-box-${peerId}`;
+
+    // Add avatar background
+    addAvatarToVideoBox(peerNode, peerId);
 
     // Create video element
     const videoEl = document.createElement('video');
@@ -318,6 +338,12 @@ function updateRoomUI() {
   document.querySelector('#muteButton').disabled = false;
   document.querySelector('#createBtn').disabled = true;
   document.querySelector('#joinBtn').disabled = true;
+
+  // Add avatar to local video box
+  const localVideoBox = document.querySelector('#localVideo').closest('.video-box');
+  if (localVideoBox && userId && !localVideoBox.querySelector('.avatar-placeholder')) {
+    addAvatarToVideoBox(localVideoBox, userId);
+  }
 }
 
 // Room Management Functions
@@ -543,6 +569,40 @@ function displayMessage(senderId, text, timestamp) {
 
   // 自動滾動到最新消息
   messageList.scrollTop = messageList.scrollHeight;
+
+  // Increment unread messages if chat is closed on mobile
+  if (senderId !== userId) {
+    incrementUnreadMessages();
+  }
+}
+
+// 顯示系統訊息（連線狀態等）
+function displaySystemMessage(text, type = 'info') {
+  const messageList = document.querySelector('#messages');
+  if (!messageList) return;
+
+  const messageItem = document.createElement('div');
+  messageItem.className = `message-item system-message ${type}`;
+
+  const textSpan = document.createElement('span');
+  textSpan.className = 'message-text';
+  textSpan.textContent = text;
+
+  const timeSpan = document.createElement('span');
+  timeSpan.className = 'message-time';
+  const time = new Date().toLocaleTimeString('zh-TW', {
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+  timeSpan.textContent = time;
+
+  messageItem.appendChild(textSpan);
+  messageItem.appendChild(timeSpan);
+
+  messageList.appendChild(messageItem);
+
+  // 自動滾動到最新消息
+  messageList.scrollTop = messageList.scrollHeight;
 }
 
 // 添加實時字符計數器（提升用戶體驗）
@@ -650,6 +710,63 @@ function showShareDialog() {
   shareDialog.open();
 }
 
+// Check if mobile device
+function isMobile() {
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+}
+
+// Generate consistent avatar URL based on userId
+function getAvatarUrl(userId) {
+  // Use DiceBear API with different styles
+  const styles = ['avataaars', 'bottts', 'personas', 'adventurer', 'big-smile'];
+  const styleIndex = Math.abs(hashCode(userId)) % styles.length;
+  const style = styles[styleIndex];
+
+  return `https://api.dicebear.com/7.x/${style}/svg?seed=${encodeURIComponent(userId)}&backgroundColor=b6e3f4,c0aede,d1d4f9`;
+}
+
+// Simple hash function for consistent avatar selection
+function hashCode(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return hash;
+}
+
+// Add avatar to video box
+function addAvatarToVideoBox(videoBox, userId) {
+  const avatarDiv = document.createElement('div');
+  avatarDiv.className = 'avatar-placeholder';
+  avatarDiv.style.backgroundImage = `url('${getAvatarUrl(userId)}')`;
+  videoBox.insertBefore(avatarDiv, videoBox.firstChild);
+}
+
+// Native share function for mobile
+async function shareViaWebAPI() {
+  const shareUrl = document.querySelector('#share-link-input').value;
+
+  if (navigator.share) {
+    try {
+      await navigator.share({
+        title: '加入語音聊天室',
+        text: '一起來語音聊天吧！',
+        url: shareUrl
+      });
+      console.log('✅ Shared successfully');
+      return true;
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        console.error('❌ Share failed:', err);
+      }
+      return false;
+    }
+  }
+  return false;
+}
+
 function setupShareDialog() {
   // Copy link button
   document.querySelector('#copy-link-btn').addEventListener('click', async () => {
@@ -677,31 +794,104 @@ function setupShareDialog() {
   });
 
   // WhatsApp share
-  document.querySelector('#share-whatsapp').addEventListener('click', () => {
+  document.querySelector('#share-whatsapp').addEventListener('click', async () => {
+    // Try native share on mobile first
+    if (isMobile() && await shareViaWebAPI()) {
+      return;
+    }
+
     const shareUrl = document.querySelector('#share-link-input').value;
-    const whatsappUrl = `https://api.whatsapp.com/send?text=加入我的語音聊天室！%0A${encodeURIComponent(shareUrl)}`;
+    const whatsappUrl = isMobile()
+      ? `whatsapp://send?text=加入我的語音聊天室！%0A${encodeURIComponent(shareUrl)}`
+      : `https://api.whatsapp.com/send?text=加入我的語音聊天室！%0A${encodeURIComponent(shareUrl)}`;
     window.open(whatsappUrl, '_blank');
   });
 
   // LINE share
-  document.querySelector('#share-line').addEventListener('click', () => {
+  document.querySelector('#share-line').addEventListener('click', async () => {
+    // Try native share on mobile first
+    if (isMobile() && await shareViaWebAPI()) {
+      return;
+    }
+
     const shareUrl = document.querySelector('#share-link-input').value;
-    const lineUrl = `https://social-plugins.line.me/lineit/share?url=${encodeURIComponent(shareUrl)}`;
+    const lineUrl = isMobile()
+      ? `https://line.me/R/msg/text/?加入我的語音聊天室！%0A${encodeURIComponent(shareUrl)}`
+      : `https://social-plugins.line.me/lineit/share?url=${encodeURIComponent(shareUrl)}`;
     window.open(lineUrl, '_blank');
   });
 
   // Telegram share
-  document.querySelector('#share-telegram').addEventListener('click', () => {
+  document.querySelector('#share-telegram').addEventListener('click', async () => {
+    // Try native share on mobile first
+    if (isMobile() && await shareViaWebAPI()) {
+      return;
+    }
+
     const shareUrl = document.querySelector('#share-link-input').value;
-    const telegramUrl = `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=加入我的語音聊天室！`;
+    const telegramUrl = isMobile()
+      ? `tg://msg?text=加入我的語音聊天室！%0A${encodeURIComponent(shareUrl)}`
+      : `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=加入我的語音聊天室！`;
     window.open(telegramUrl, '_blank');
   });
+}
+
+// Mobile chat toggle functionality
+let unreadMessages = 0;
+let isChatOpen = false;
+
+function setupMobileChatToggle() {
+  const chatToggle = document.getElementById('mobileChatToggle');
+  const chatOverlay = document.getElementById('chatOverlay');
+  const rightPanel = document.querySelector('.right-panel');
+  const unreadBadge = document.getElementById('unreadBadge');
+
+  if (!chatToggle || !chatOverlay || !rightPanel) return;
+
+  function openChat() {
+    rightPanel.classList.add('active');
+    chatOverlay.classList.add('active');
+    isChatOpen = true;
+    unreadMessages = 0;
+    unreadBadge.style.display = 'none';
+    unreadBadge.textContent = '0';
+  }
+
+  function closeChat() {
+    rightPanel.classList.remove('active');
+    chatOverlay.classList.remove('active');
+    isChatOpen = false;
+  }
+
+  chatToggle.addEventListener('click', () => {
+    if (isChatOpen) {
+      closeChat();
+    } else {
+      openChat();
+    }
+  });
+
+  chatOverlay.addEventListener('click', closeChat);
+}
+
+function incrementUnreadMessages() {
+  if (isMobile() && !isChatOpen) {
+    unreadMessages++;
+    const unreadBadge = document.getElementById('unreadBadge');
+    if (unreadBadge) {
+      unreadBadge.textContent = unreadMessages > 99 ? '99+' : unreadMessages.toString();
+      unreadBadge.style.display = 'block';
+    }
+  }
 }
 
 // Initialization
 function init() {
   const params = new URLSearchParams(location.search);
   roomDialog = new mdc.dialog.MDCDialog(document.querySelector('#room-dialog'));
+
+  // Setup mobile chat toggle
+  setupMobileChatToggle();
 
   // Setup share dialog
   setupShareDialog();
