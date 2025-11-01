@@ -18,9 +18,23 @@ const Room = sequelize.define('Room', {
     allowNull: true,
     comment: 'Optional room name'
   },
+  password: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    comment: 'Password hash for protected rooms'
+  },
+  is_private: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    comment: 'Whether the room is private (not shown in lobby)'
+  },
   max_users: {
     type: DataTypes.INTEGER,
     defaultValue: 10,
+    validate: {
+      min: 2,
+      max: 50
+    },
     comment: 'Maximum number of users allowed in room'
   },
   is_active: {
@@ -32,6 +46,11 @@ const Room = sequelize.define('Room', {
     type: DataTypes.STRING,
     allowNull: true,
     comment: 'User ID of room creator'
+  },
+  owner_user_id: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    comment: 'Current owner user ID (can transfer ownership)'
   }
 }, {
   tableName: 'rooms',
@@ -39,6 +58,12 @@ const Room = sequelize.define('Room', {
     {
       unique: true,
       fields: ['room_id']
+    },
+    {
+      fields: ['is_private', 'is_active']
+    },
+    {
+      fields: ['owner_user_id']
     }
   ]
 });

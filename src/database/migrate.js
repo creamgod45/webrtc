@@ -8,16 +8,18 @@ async function migrate() {
     // Test connection
     await testConnection();
 
-    // Sync all models
-    await sequelize.sync({ alter: true });
+    // Sync all models (alter: false for safety)
+    await sequelize.sync({ alter: false });
 
     console.log('✅ Database migration completed successfully!');
-    console.log('\nCreated tables:');
-    console.log('  - rooms');
+    console.log('\nCreated/Updated tables:');
+    console.log('  - rooms (✨ added: password, is_private, owner_user_id)');
     console.log('  - users');
     console.log('  - messages');
     console.log('  - ice_candidates');
     console.log('  - sdp_signals');
+    console.log('  - banned_users (🆕 new)');
+    console.log('  - room_moderators (🆕 new)');
 
     process.exit(0);
   } catch (error) {
