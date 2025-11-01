@@ -114,6 +114,25 @@ socket.on('error', (error) => {
   alert(error.message || '發生錯誤');
 });
 
+socket.on('kicked', (data) => {
+  console.log('Kicked from room:', data);
+  displaySystemMessage(`您被踢出房間：${data.reason || '未提供原因'}`, 'error');
+  setTimeout(() => {
+    hangUp();
+  }, 2000);
+});
+
+socket.on('banned', (data) => {
+  console.log('Banned from room:', data);
+  const message = data.expiresAt
+    ? `您已被封鎖，解封時間：${new Date(data.expiresAt).toLocaleString('zh-TW')}`
+    : `您已被永久封鎖`;
+  displaySystemMessage(`${message}\n原因：${data.reason || '未提供原因'}`, 'error');
+  setTimeout(() => {
+    hangUp();
+  }, 3000);
+});
+
 // WebRTC Functions
 async function createPeerConnection(peerId, isInitiator) {
   console.log(`Creating peer connection with ${peerId}, initiator: ${isInitiator}`);
@@ -347,43 +366,65 @@ function updateRoomUI() {
 }
 
 // Room Management Functions
+let createRoomDialog = null;
+let joinConfirmDialog = null;
+let pendingJoinRoomId = null;
+
+// Show create room dialog
+function showCreateRoomDialog() {
+  if (!createRoomDialog) {
+    createRoomDialog = new mdc.dialog.MDCDialog(document.querySelector('#create-room-dialog'));
+
+    // Update slider value display
+    const slider = document.getElementById('create-max-users');
+    const display = document.getElementById('max-users-display');
+    slider.addEventListener('input', () => {
+      display.textContent = `${slider.value} 人`;
+    });
+  }
+
+  createRoomDialog.open();
+}
+
 async function createRoom() {
+  showCreateRoomDialog();
+}
+
+// Handle create room confirmation
+async function handleCreateRoom() {
+  const name = document.getElementById('create-room-name').value.trim();
+  const password = document.getElementById('create-room-password').value;
+  const maxUsers = parseInt(document.getElementById('create-max-users').value);
+  const isPrivate = document.getElementById('create-is-private').checked;
+
   document.querySelector('#createBtn').disabled = true;
 
   const generatedRoomId = Math.random().toString(36).substring(2, 8);
 
-  socket.emit('create-room', {
-    roomId: generatedRoomId,
-    userId: null // Server will assign user1
-  });
-
-  document.querySelector('#shareButton').onclick = () => {
-    showShareDialog();
-  };
-
-  backgroundRun();
-}
-
-function joinRoom() {
-  document.querySelector('#confirmJoinBtn').addEventListener('click', async () => {
-    const inputRoomId = document.querySelector('#room-id').value;
-    await joinRoomById(inputRoomId);
-  }, { once: true });
-  roomDialog.open();
-}
-
-async function joinRoomById(rid) {
-  roomId = rid;
-
-  // Check if room exists
   try {
-    const response = await fetch(`/api/rooms/${rid}`);
+    // Create room via REST API with settings
+    const response = await fetch('/api/rooms', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        roomId: generatedRoomId,
+        name: name || null,
+        password: password || null,
+        maxUsers,
+        isPrivate,
+        createdBy: null // Will be set when joining
+      })
+    });
+
     const data = await response.json();
 
     if (response.ok) {
-      socket.emit('join-room', {
-        roomId: rid,
-        userId: null // Server will assign sequential user ID
+      // Now join the room via WebSocket
+      socket.emit('create-room', {
+        roomId: data.roomId,
+        userId: null // Server will assign user1
       });
 
       document.querySelector('#shareButton').onclick = () => {
@@ -391,13 +432,118 @@ async function joinRoomById(rid) {
       };
 
       backgroundRun();
+      createRoomDialog?.close();
     } else {
-      document.querySelector('#currentRoom').innerText = `房間: ${rid} - 不存在的聊天室!`;
+      alert(data.error || '建立房間失敗');
+      document.querySelector('#createBtn').disabled = false;
     }
   } catch (error) {
-    console.error('Error checking room:', error);
-    document.querySelector('#currentRoom').innerText = `房間: ${rid} - 連接失敗!`;
+    console.error('Error creating room:', error);
+    alert('建立房間失敗，請重試');
+    document.querySelector('#createBtn').disabled = false;
   }
+}
+
+function joinRoom() {
+  document.querySelector('#confirmJoinBtn').addEventListener('click', async () => {
+    const inputRoomId = document.querySelector('#room-id').value;
+    await showJoinConfirmDialog(inputRoomId);
+  }, { once: true });
+  roomDialog.open();
+}
+
+// Show join confirmation dialog with room info
+async function showJoinConfirmDialog(rid) {
+  try {
+    const response = await fetch(`/api/rooms/${rid}`);
+    const data = await response.json();
+
+    if (!response.ok) {
+      alert(data.error || '房間不存在');
+      return;
+    }
+
+    pendingJoinRoomId = rid;
+
+    // Update dialog with room info
+    document.getElementById('join-room-name').textContent = data.name || '未命名房間';
+    document.getElementById('join-user-count').textContent = data.userCount || 0;
+    document.getElementById('join-max-users').textContent = data.maxUsers;
+
+    // Show/hide password input
+    const passwordGroup = document.getElementById('password-input-group');
+    const passwordError = document.getElementById('password-error');
+    passwordError.style.display = 'none';
+
+    if (data.hasPassword) {
+      passwordGroup.style.display = 'block';
+      document.getElementById('join-room-password').value = '';
+    } else {
+      passwordGroup.style.display = 'none';
+    }
+
+    if (!joinConfirmDialog) {
+      joinConfirmDialog = new mdc.dialog.MDCDialog(document.querySelector('#join-confirm-dialog'));
+    }
+
+    roomDialog?.close();
+    joinConfirmDialog.open();
+  } catch (error) {
+    console.error('Error fetching room info:', error);
+    alert('無法連接到伺服器');
+  }
+}
+
+// Handle join room confirmation
+async function handleJoinRoom() {
+  const password = document.getElementById('join-room-password').value;
+  const passwordError = document.getElementById('password-error');
+
+  try {
+    // First check if room has password
+    const roomResponse = await fetch(`/api/rooms/${pendingJoinRoomId}`);
+    const roomData = await roomResponse.json();
+
+    // Verify password if room has one
+    if (roomData.hasPassword) {
+      const verifyResponse = await fetch(`/api/rooms/${pendingJoinRoomId}/verify-password`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ password })
+      });
+
+      const verifyData = await verifyResponse.json();
+
+      if (!verifyData.valid) {
+        passwordError.style.display = 'block';
+        return;
+      }
+    }
+
+    // Password is valid or not required, join the room
+    await joinRoomById(pendingJoinRoomId);
+    joinConfirmDialog?.close();
+  } catch (error) {
+    console.error('Error joining room:', error);
+    alert('加入房間失敗，請重試');
+  }
+}
+
+async function joinRoomById(rid) {
+  roomId = rid;
+
+  socket.emit('join-room', {
+    roomId: rid,
+    userId: null // Server will assign sequential user ID
+  });
+
+  document.querySelector('#shareButton').onclick = () => {
+    showShareDialog();
+  };
+
+  backgroundRun();
 }
 
 async function openUserMedia() {
@@ -895,6 +1041,18 @@ function init() {
 
   // Setup share dialog
   setupShareDialog();
+
+  // Setup create room dialog button
+  const confirmCreateBtn = document.getElementById('confirmCreateBtn');
+  if (confirmCreateBtn) {
+    confirmCreateBtn.addEventListener('click', handleCreateRoom);
+  }
+
+  // Setup join confirm dialog button
+  const confirmJoinRoomBtn = document.getElementById('confirmJoinRoomBtn');
+  if (confirmJoinRoomBtn) {
+    confirmJoinRoomBtn.addEventListener('click', handleJoinRoom);
+  }
 
   if (params.get('roomId')) {
     console.log('Auto-joining room from URL');

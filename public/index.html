@@ -137,6 +137,99 @@
         <div class="mdc-dialog__scrim"></div>
     </div>
 
+    <!-- Create Room Dialog -->
+    <div class="mdc-dialog" id="create-room-dialog" role="alertdialog" aria-modal="true">
+        <div class="mdc-dialog__container">
+            <div class="mdc-dialog__surface room-settings-surface">
+                <div class="room-settings-header">
+                    <i class="material-icons">add_circle</i>
+                    <h2>建立房間</h2>
+                </div>
+                <div class="room-settings-content">
+                    <div class="form-group">
+                        <label for="create-room-name" class="input-label">房間名稱（選填）</label>
+                        <input type="text" id="create-room-name" class="room-input" placeholder="我的語音房間" maxlength="50">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="create-room-password" class="input-label">房間密碼（選填）</label>
+                        <input type="password" id="create-room-password" class="room-input" placeholder="留空表示無密碼" maxlength="20">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="create-max-users" class="input-label">人數限制</label>
+                        <div class="slider-container">
+                            <input type="range" id="create-max-users" min="2" max="50" value="10" class="room-slider">
+                            <span id="max-users-display" class="slider-value">10 人</span>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="checkbox-container">
+                            <input type="checkbox" id="create-is-private">
+                            <span class="checkbox-label">私人房間（不在大廳顯示）</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="room-settings-actions">
+                    <button type="button" class="dialog-btn cancel-btn" data-mdc-dialog-action="cancel">
+                        取消
+                    </button>
+                    <button id="confirmCreateBtn" type="button" class="dialog-btn create-btn" data-mdc-dialog-action="create">
+                        建立
+                    </button>
+                </div>
+            </div>
+        </div>
+        <div class="mdc-dialog__scrim"></div>
+    </div>
+
+    <!-- Join Room Confirm Dialog -->
+    <div class="mdc-dialog" id="join-confirm-dialog" role="alertdialog" aria-modal="true">
+        <div class="mdc-dialog__container">
+            <div class="mdc-dialog__surface join-confirm-surface">
+                <div class="join-confirm-header">
+                    <i class="material-icons">meeting_room</i>
+                    <h2>加入房間</h2>
+                </div>
+                <div class="join-confirm-content">
+                    <div class="room-info-display">
+                        <div class="info-row">
+                            <span class="info-label">房間名稱：</span>
+                            <span id="join-room-name" class="info-value">-</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">當前人數：</span>
+                            <span id="join-user-count" class="info-value">-</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">人數限制：</span>
+                            <span id="join-max-users" class="info-value">-</span>
+                        </div>
+                    </div>
+
+                    <div class="form-group" id="password-input-group" style="display: none;">
+                        <label for="join-room-password" class="input-label">
+                            <i class="material-icons">lock</i>
+                            房間密碼
+                        </label>
+                        <input type="password" id="join-room-password" class="room-input" placeholder="請輸入房間密碼">
+                        <span id="password-error" class="error-message" style="display: none;">密碼錯誤，請重試</span>
+                    </div>
+                </div>
+                <div class="join-confirm-actions">
+                    <button type="button" class="dialog-btn cancel-btn" data-mdc-dialog-action="cancel">
+                        取消
+                    </button>
+                    <button id="confirmJoinRoomBtn" type="button" class="dialog-btn join-btn" data-mdc-dialog-action="join">
+                        確認加入
+                    </button>
+                </div>
+            </div>
+        </div>
+        <div class="mdc-dialog__scrim"></div>
+    </div>
+
     <!-- Share Dialog -->
     <div class="mdc-dialog share-dialog" id="share-dialog" role="alertdialog" aria-modal="true">
         <div class="mdc-dialog__container">
