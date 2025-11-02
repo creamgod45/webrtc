@@ -2,6 +2,15 @@ const express = require('express');
 const bcrypt = require('bcrypt');
 const { Room, User, Message, BannedUser, RoomModerator } = require('../models');
 const { Op } = require('sequelize');
+const {
+  validateRoomId,
+  validateUserId,
+  validateRoomName,
+  validatePassword,
+  validateMaxUsers,
+  validateReason,
+  validateDuration
+} = require('../middleware/security');
 
 const router = express.Router();
 const SALT_ROUNDS = 10;
@@ -147,26 +156,32 @@ router.post('/', async (req, res) => {
     const { roomId, name, maxUsers, password, isPrivate, createdBy } = req.body;
 
     // Generate room ID if not provided
-    const newRoomId = roomId || Math.random().toString(36).substring(2, 8);
+    const generatedRoomId = roomId || Math.random().toString(36).substring(2, 8);
+
+    // Validate and sanitize inputs
+    const validatedRoomId = validateRoomId(generatedRoomId);
+    const validatedName = validateRoomName(name);
+    const validatedMaxUsers = validateMaxUsers(maxUsers || 10);
+    const validatedPassword = validatePassword(password);
 
     // Check if room ID already exists
-    const existing = await Room.findOne({ where: { room_id: newRoomId } });
+    const existing = await Room.findOne({ where: { room_id: validatedRoomId } });
     if (existing) {
       return res.status(409).json({ error: 'Room ID already exists' });
     }
 
     // Hash password if provided
     let passwordHash = null;
-    if (password && password.length > 0) {
-      passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
+    if (validatedPassword) {
+      passwordHash = await bcrypt.hash(validatedPassword, SALT_ROUNDS);
     }
 
     const room = await Room.create({
-      room_id: newRoomId,
-      name: name || null,
+      room_id: validatedRoomId,
+      name: validatedName,
       password: passwordHash,
       is_private: isPrivate || false,
-      max_users: maxUsers || 10,
+      max_users: validatedMaxUsers,
       is_active: true,
       created_by: createdBy || null,
       owner_user_id: createdBy || null
@@ -223,29 +238,40 @@ router.put('/:roomId/settings', async (req, res) => {
     const { roomId } = req.params;
     const { userId, name, maxUsers, password, isPrivate } = req.body;
 
-    const room = await Room.findOne({ where: { room_id: roomId } });
+    // Validate inputs
+    const validatedRoomId = validateRoomId(roomId);
+    const validatedUserId = validateUserId(userId);
+
+    const room = await Room.findOne({ where: { room_id: validatedRoomId } });
 
     if (!room) {
       return res.status(404).json({ error: 'Room not found' });
     }
 
     // Check if user is owner
-    if (room.owner_user_id !== userId) {
+    if (room.owner_user_id !== validatedUserId) {
       return res.status(403).json({ error: 'Only room owner can change settings' });
     }
 
     const updates = {};
 
-    if (name !== undefined) updates.name = name;
-    if (maxUsers !== undefined) updates.max_users = maxUsers;
-    if (isPrivate !== undefined) updates.is_private = isPrivate;
+    if (name !== undefined) {
+      updates.name = validateRoomName(name);
+    }
+    if (maxUsers !== undefined) {
+      updates.max_users = validateMaxUsers(maxUsers);
+    }
+    if (isPrivate !== undefined) {
+      updates.is_private = isPrivate;
+    }
 
     // Update password if provided
     if (password !== undefined) {
       if (password === null || password === '') {
         updates.password = null;
       } else {
-        updates.password = await bcrypt.hash(password, SALT_ROUNDS);
+        const validatedPassword = validatePassword(password);
+        updates.password = await bcrypt.hash(validatedPassword, SALT_ROUNDS);
       }
     }
 
@@ -263,7 +289,7 @@ router.put('/:roomId/settings', async (req, res) => {
     });
   } catch (error) {
     console.error('Error updating room settings:', error);
-    res.status(500).json({ error: 'Failed to update room settings' });
+    res.status(500).json({ error: error.message || 'Failed to update room settings' });
   }
 });
 
@@ -273,7 +299,11 @@ router.post('/:roomId/verify-password', async (req, res) => {
     const { roomId } = req.params;
     const { password } = req.body;
 
-    const room = await Room.findOne({ where: { room_id: roomId } });
+    // Validate inputs
+    const validatedRoomId = validateRoomId(roomId);
+    const validatedPassword = validatePassword(password);
+
+    const room = await Room.findOne({ where: { room_id: validatedRoomId } });
 
     if (!room) {
       return res.status(404).json({ error: 'Room not found' });
@@ -283,12 +313,12 @@ router.post('/:roomId/verify-password', async (req, res) => {
       return res.json({ valid: true });
     }
 
-    const isValid = await bcrypt.compare(password || '', room.password);
+    const isValid = await bcrypt.compare(validatedPassword || '', room.password);
 
     res.json({ valid: isValid });
   } catch (error) {
     console.error('Error verifying password:', error);
-    res.status(500).json({ error: 'Failed to verify password' });
+    res.status(500).json({ error: error.message || 'Failed to verify password' });
   }
 });
 
@@ -298,18 +328,23 @@ router.post('/:roomId/kick', async (req, res) => {
     const { roomId } = req.params;
     const { userId, targetUserId } = req.body;
 
-    const room = await Room.findOne({ where: { room_id: roomId } });
+    // Validate inputs
+    const validatedRoomId = validateRoomId(roomId);
+    const validatedUserId = validateUserId(userId);
+    const validatedTargetUserId = validateUserId(targetUserId);
+
+    const room = await Room.findOne({ where: { room_id: validatedRoomId } });
 
     if (!room) {
       return res.status(404).json({ error: 'Room not found' });
     }
 
     // Check if user is owner or moderator
-    const isOwner = room.owner_user_id === userId;
+    const isOwner = room.owner_user_id === validatedUserId;
     const isModerator = await RoomModerator.findOne({
       where: {
         room_id: room.id,
-        user_identifier: userId
+        user_identifier: validatedUserId
       }
     });
 
@@ -322,14 +357,14 @@ router.post('/:roomId/kick', async (req, res) => {
     const targetUser = await User.findOne({
       where: {
         room_id: room.id,
-        user_id: targetUserId,
+        user_id: validatedTargetUserId,
         is_connected: true
       }
     });
 
     if (targetUser && targetUser.socket_id) {
       io.to(targetUser.socket_id).emit('kicked', {
-        roomId,
+        roomId: validatedRoomId,
         reason: 'Kicked by room owner/moderator'
       });
     }
@@ -337,13 +372,13 @@ router.post('/:roomId/kick', async (req, res) => {
     // Update user status
     await User.update(
       { is_connected: false, left_at: new Date() },
-      { where: { room_id: room.id, user_id: targetUserId } }
+      { where: { room_id: room.id, user_id: validatedTargetUserId } }
     );
 
     res.json({ message: 'User kicked successfully' });
   } catch (error) {
     console.error('Error kicking user:', error);
-    res.status(500).json({ error: 'Failed to kick user' });
+    res.status(500).json({ error: error.message || 'Failed to kick user' });
   }
 });
 
@@ -353,18 +388,25 @@ router.post('/:roomId/ban', async (req, res) => {
     const { roomId } = req.params;
     const { userId, targetUserId, reason, duration } = req.body;
 
-    const room = await Room.findOne({ where: { room_id: roomId } });
+    // Validate inputs
+    const validatedRoomId = validateRoomId(roomId);
+    const validatedUserId = validateUserId(userId);
+    const validatedTargetUserId = validateUserId(targetUserId);
+    const validatedReason = validateReason(reason);
+    const validatedDuration = validateDuration(duration);
+
+    const room = await Room.findOne({ where: { room_id: validatedRoomId } });
 
     if (!room) {
       return res.status(404).json({ error: 'Room not found' });
     }
 
     // Check if user is owner or moderator
-    const isOwner = room.owner_user_id === userId;
+    const isOwner = room.owner_user_id === validatedUserId;
     const isModerator = await RoomModerator.findOne({
       where: {
         room_id: room.id,
-        user_identifier: userId
+        user_identifier: validatedUserId
       }
     });
 
@@ -374,16 +416,16 @@ router.post('/:roomId/ban', async (req, res) => {
 
     // Calculate expiry if duration provided (in hours)
     let expiresAt = null;
-    if (duration) {
-      expiresAt = new Date(Date.now() + duration * 60 * 60 * 1000);
+    if (validatedDuration) {
+      expiresAt = new Date(Date.now() + validatedDuration * 60 * 60 * 1000);
     }
 
     // Create ban record
     await BannedUser.create({
       room_id: room.id,
-      user_identifier: targetUserId,
-      banned_by: userId,
-      reason: reason || null,
+      user_identifier: validatedTargetUserId,
+      banned_by: validatedUserId,
+      reason: validatedReason,
       expires_at: expiresAt
     });
 
@@ -392,15 +434,15 @@ router.post('/:roomId/ban', async (req, res) => {
     const targetUser = await User.findOne({
       where: {
         room_id: room.id,
-        user_id: targetUserId,
+        user_id: validatedTargetUserId,
         is_connected: true
       }
     });
 
     if (targetUser && targetUser.socket_id) {
       io.to(targetUser.socket_id).emit('banned', {
-        roomId,
-        reason: reason || 'Banned by room owner/moderator',
+        roomId: validatedRoomId,
+        reason: validatedReason || 'Banned by room owner/moderator',
         expiresAt
       });
     }
@@ -408,7 +450,7 @@ router.post('/:roomId/ban', async (req, res) => {
     // Disconnect user
     await User.update(
       { is_connected: false, left_at: new Date() },
-      { where: { room_id: room.id, user_id: targetUserId } }
+      { where: { room_id: room.id, user_id: validatedTargetUserId } }
     );
 
     res.json({
@@ -417,7 +459,7 @@ router.post('/:roomId/ban', async (req, res) => {
     });
   } catch (error) {
     console.error('Error banning user:', error);
-    res.status(500).json({ error: 'Failed to ban user' });
+    res.status(500).json({ error: error.message || 'Failed to ban user' });
   }
 });
 
@@ -427,14 +469,19 @@ router.delete('/:roomId/ban/:targetUserId', async (req, res) => {
     const { roomId, targetUserId } = req.params;
     const { userId } = req.body;
 
-    const room = await Room.findOne({ where: { room_id: roomId } });
+    // Validate inputs
+    const validatedRoomId = validateRoomId(roomId);
+    const validatedTargetUserId = validateUserId(targetUserId);
+    const validatedUserId = validateUserId(userId);
+
+    const room = await Room.findOne({ where: { room_id: validatedRoomId } });
 
     if (!room) {
       return res.status(404).json({ error: 'Room not found' });
     }
 
     // Check if user is owner or moderator
-    const isOwner = room.owner_user_id === userId;
+    const isOwner = room.owner_user_id === validatedUserId;
     if (!isOwner) {
       return res.status(403).json({ error: 'Only owner can unban users' });
     }
@@ -442,14 +489,14 @@ router.delete('/:roomId/ban/:targetUserId', async (req, res) => {
     await BannedUser.destroy({
       where: {
         room_id: room.id,
-        user_identifier: targetUserId
+        user_identifier: validatedTargetUserId
       }
     });
 
     res.json({ message: 'User unbanned successfully' });
   } catch (error) {
     console.error('Error unbanning user:', error);
-    res.status(500).json({ error: 'Failed to unban user' });
+    res.status(500).json({ error: error.message || 'Failed to unban user' });
   }
 });
 
@@ -496,21 +543,26 @@ router.post('/:roomId/moderator', async (req, res) => {
     const { roomId } = req.params;
     const { userId, targetUserId, permissions } = req.body;
 
-    const room = await Room.findOne({ where: { room_id: roomId } });
+    // Validate inputs
+    const validatedRoomId = validateRoomId(roomId);
+    const validatedUserId = validateUserId(userId);
+    const validatedTargetUserId = validateUserId(targetUserId);
+
+    const room = await Room.findOne({ where: { room_id: validatedRoomId } });
 
     if (!room) {
       return res.status(404).json({ error: 'Room not found' });
     }
 
     // Only owner can add moderators
-    if (room.owner_user_id !== userId) {
+    if (room.owner_user_id !== validatedUserId) {
       return res.status(403).json({ error: 'Only owner can add moderators' });
     }
 
     await RoomModerator.create({
       room_id: room.id,
-      user_identifier: targetUserId,
-      granted_by: userId,
+      user_identifier: validatedTargetUserId,
+      granted_by: validatedUserId,
       permissions: permissions || {
         can_kick: true,
         can_ban: true,
@@ -522,7 +574,7 @@ router.post('/:roomId/moderator', async (req, res) => {
     res.json({ message: 'Moderator added successfully' });
   } catch (error) {
     console.error('Error adding moderator:', error);
-    res.status(500).json({ error: 'Failed to add moderator' });
+    res.status(500).json({ error: error.message || 'Failed to add moderator' });
   }
 });
 
@@ -532,28 +584,33 @@ router.delete('/:roomId/moderator/:targetUserId', async (req, res) => {
     const { roomId, targetUserId } = req.params;
     const { userId } = req.body;
 
-    const room = await Room.findOne({ where: { room_id: roomId } });
+    // Validate inputs
+    const validatedRoomId = validateRoomId(roomId);
+    const validatedTargetUserId = validateUserId(targetUserId);
+    const validatedUserId = validateUserId(userId);
+
+    const room = await Room.findOne({ where: { room_id: validatedRoomId } });
 
     if (!room) {
       return res.status(404).json({ error: 'Room not found' });
     }
 
     // Only owner can remove moderators
-    if (room.owner_user_id !== userId) {
+    if (room.owner_user_id !== validatedUserId) {
       return res.status(403).json({ error: 'Only owner can remove moderators' });
     }
 
     await RoomModerator.destroy({
       where: {
         room_id: room.id,
-        user_identifier: targetUserId
+        user_identifier: validatedTargetUserId
       }
     });
 
     res.json({ message: 'Moderator removed successfully' });
   } catch (error) {
     console.error('Error removing moderator:', error);
-    res.status(500).json({ error: 'Failed to remove moderator' });
+    res.status(500).json({ error: error.message || 'Failed to remove moderator' });
   }
 });
 

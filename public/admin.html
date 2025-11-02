@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>管理員面板 - API 密鑰管理</title>
+    <link href="https://unpkg.com/material-components-web@latest/dist/material-components-web.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Roboto', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .login-card, .admin-panel {
+            background: white;
+            border-radius: 16px;
+            padding: 32px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+
+        .login-card {
+            max-width: 400px;
+            margin: 100px auto;
+        }
+
+        .admin-panel {
+            display: none;
+        }
+
+        .admin-panel.active {
+            display: block;
+        }
+
+        h1, h2 {
+            color: #333;
+            margin-bottom: 24px;
+        }
+
+        h1 {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 28px;
+        }
+
+        h1 i {
+            color: #667eea;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #666;
+            font-size: 14px;
+        }
+
+        input[type="password"],
+        input[type="text"],
+        input[type="number"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 15px;
+            transition: border-color 0.3s;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-danger {
+            background: #f44336;
+            color: white;
+        }
+
+        .btn-success {
+            background: #4caf50;
+            color: white;
+        }
+
+        .error-message {
+            color: #f44336;
+            font-size: 14px;
+            margin-top: 8px;
+        }
+
+        .keys-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        .keys-table th,
+        .keys-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .keys-table th {
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #666;
+        }
+
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .status-active {
+            background: #e8f5e9;
+            color: #2e7d32;
+        }
+
+        .status-inactive {
+            background: #ffebee;
+            color: #c62828;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            padding: 32px;
+            border-radius: 16px;
+            max-width: 500px;
+            width: 90%;
+        }
+
+        .api-key-display {
+            background: #f8f9fa;
+            padding: 16px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            word-break: break-all;
+            margin: 16px 0;
+            border: 2px solid #667eea;
+        }
+
+        .warning {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 12px;
+            margin: 16px 0;
+            border-radius: 4px;
+            color: #856404;
+        }
+
+        .header-actions {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+
+        .logout-btn {
+            background: #f5f5f5;
+            color: #666;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+        }
+    </style>
+</head>
+<body>
+    <!-- Login Card -->
+    <div class="login-card" id="loginCard">
+        <h1>
+            <i class="material-icons">admin_panel_settings</i>
+            管理員登入
+        </h1>
+        <form id="loginForm">
+            <div class="form-group">
+                <label for="adminPassword">管理員密碼</label>
+                <input type="password" id="adminPassword" placeholder="請輸入管理員密碼" required>
+                <div id="loginError" class="error-message" style="display: none;"></div>
+            </div>
+            <button type="submit" class="btn btn-primary">
+                <i class="material-icons">login</i>
+                登入
+            </button>
+        </form>
+    </div>
+
+    <!-- Admin Panel -->
+    <div class="container">
+        <div class="admin-panel" id="adminPanel">
+            <div class="header-actions">
+                <h1>
+                    <i class="material-icons">vpn_key</i>
+                    API 密鑰管理
+                </h1>
+                <button class="btn logout-btn" id="logoutBtn">
+                    <i class="material-icons">logout</i>
+                    登出
+                </button>
+            </div>
+
+            <button class="btn btn-primary" id="createKeyBtn">
+                <i class="material-icons">add</i>
+                建立新密鑰
+            </button>
+
+            <table class="keys-table">
+                <thead>
+                    <tr>
+                        <th>名稱</th>
+                        <th>建立時間</th>
+                        <th>過期時間</th>
+                        <th>最後使用</th>
+                        <th>狀態</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody id="keysTableBody">
+                    <!-- Keys will be populated here -->
+                </tbody>
+            </table>
+            <div id="emptyState" class="empty-state" style="display: none;">
+                <i class="material-icons" style="font-size: 64px; color: #ccc;">key_off</i>
+                <p>尚無 API 密鑰</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create Key Modal -->
+    <div class="modal" id="createKeyModal">
+        <div class="modal-content">
+            <h2>建立新 API 密鑰</h2>
+            <form id="createKeyForm">
+                <div class="form-group">
+                    <label for="keyName">密鑰名稱</label>
+                    <input type="text" id="keyName" placeholder="例如：Production API" required>
+                </div>
+                <div class="form-group">
+                    <label for="expiresInDays">有效期限（天數，0 = 永久）</label>
+                    <input type="number" id="expiresInDays" value="0" min="0">
+                </div>
+                <div style="display: flex; gap: 12px; margin-top: 24px;">
+                    <button type="submit" class="btn btn-primary">建立</button>
+                    <button type="button" class="btn" id="cancelCreateBtn">取消</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Show Key Modal -->
+    <div class="modal" id="showKeyModal">
+        <div class="modal-content">
+            <h2>API 密鑰已建立</h2>
+            <div class="warning">
+                <strong>⚠️ 重要提示</strong><br>
+                這個密鑰只會顯示一次，請立即保存！
+            </div>
+            <div class="api-key-display" id="apiKeyDisplay"></div>
+            <button class="btn btn-primary" id="copyKeyBtn">
+                <i class="material-icons">content_copy</i>
+                複製密鑰
+            </button>
+            <button class="btn btn-success" id="closeKeyModalBtn" style="margin-left: 12px;">
+                我已保存
+            </button>
+        </div>
+    </div>
+
+    <script>
+        let adminPassword = null;
+        let csrfToken = null; // Phase 3: CSRF token
+
+        // Initialize CSRF token
+        async function initializeCsrfToken() {
+            try {
+                const response = await fetch('/api/csrf-token');
+                const data = await response.json();
+                csrfToken = data.csrfToken;
+                console.log('✅ CSRF token initialized');
+            } catch (error) {
+                console.error('❌ Failed to initialize CSRF token:', error);
+            }
+        }
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', async () => {
+            await initializeCsrfToken();
+        });
+
+        // Login
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const password = document.getElementById('adminPassword').value;
+            const errorDiv = document.getElementById('loginError');
+
+            try {
+                const response = await fetch('/admin/verify-password', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-Token': csrfToken // Phase 3: Include CSRF token
+                    },
+                    body: JSON.stringify({ password })
+                });
+
+                const data = await response.json();
+
+                if (data.valid) {
+                    adminPassword = password;
+                    document.getElementById('loginCard').style.display = 'none';
+                    document.getElementById('adminPanel').classList.add('active');
+                    loadKeys();
+                } else {
+                    errorDiv.textContent = '密碼錯誤';
+                    errorDiv.style.display = 'block';
+                }
+            } catch (error) {
+                errorDiv.textContent = '連接失敗';
+                errorDiv.style.display = 'block';
+            }
+        });
+
+        // Logout
+        document.getElementById('logoutBtn').addEventListener('click', () => {
+            adminPassword = null;
+            document.getElementById('loginCard').style.display = 'block';
+            document.getElementById('adminPanel').classList.remove('active');
+            document.getElementById('adminPassword').value = '';
+        });
+
+        // Load keys
+        async function loadKeys() {
+            try {
+                const response = await fetch('/admin/api-keys', {
+                    headers: {
+                        'X-Admin-Password': adminPassword
+                    }
+                });
+
+                const data = await response.json();
+                const tbody = document.getElementById('keysTableBody');
+                const emptyState = document.getElementById('emptyState');
+
+                if (data.keys && data.keys.length > 0) {
+                    tbody.innerHTML = data.keys.map(key => `
+                        <tr>
+                            <td>${key.name}</td>
+                            <td>${new Date(key.createdAt).toLocaleDateString('zh-TW')}</td>
+                            <td>${key.expiresAt ? new Date(key.expiresAt).toLocaleDateString('zh-TW') : '永久'}</td>
+                            <td>${key.lastUsedAt ? new Date(key.lastUsedAt).toLocaleString('zh-TW') : '未使用'}</td>
+                            <td>
+                                <span class="status-badge ${key.isActive ? 'status-active' : 'status-inactive'}">
+                                    ${key.isActive ? '啟用' : '停用'}
+                                </span>
+                            </td>
+                            <td>
+                                ${key.isActive ?
+                                    `<button class="btn btn-danger" onclick="deactivateKey('${key.id}')">
+                                        <i class="material-icons">block</i> 停用
+                                    </button>` :
+                                    `<button class="btn btn-success" onclick="activateKey('${key.id}')">
+                                        <i class="material-icons">check_circle</i> 啟用
+                                    </button>`
+                                }
+                            </td>
+                        </tr>
+                    `).join('');
+                    emptyState.style.display = 'none';
+                } else {
+                    tbody.innerHTML = '';
+                    emptyState.style.display = 'block';
+                }
+            } catch (error) {
+                console.error('Failed to load keys:', error);
+            }
+        }
+
+        // Create key modal
+        document.getElementById('createKeyBtn').addEventListener('click', () => {
+            document.getElementById('createKeyModal').classList.add('active');
+        });
+
+        document.getElementById('cancelCreateBtn').addEventListener('click', () => {
+            document.getElementById('createKeyModal').classList.remove('active');
+        });
+
+        document.getElementById('createKeyForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const name = document.getElementById('keyName').value;
+            const expiresInDays = parseInt(document.getElementById('expiresInDays').value);
+
+            try {
+                const response = await fetch('/admin/api-keys', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Admin-Password': adminPassword,
+                        'X-CSRF-Token': csrfToken // Phase 3: Include CSRF token
+                    },
+                    body: JSON.stringify({
+                        name,
+                        expiresInDays: expiresInDays > 0 ? expiresInDays : null
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    document.getElementById('createKeyModal').classList.remove('active');
+                    document.getElementById('apiKeyDisplay').textContent = data.apiKey;
+                    document.getElementById('showKeyModal').classList.add('active');
+                    document.getElementById('keyName').value = '';
+                    loadKeys();
+                } else {
+                    alert(data.error || '建立失敗');
+                }
+            } catch (error) {
+                alert('連接失敗');
+            }
+        });
+
+        // Copy key
+        document.getElementById('copyKeyBtn').addEventListener('click', async () => {
+            const key = document.getElementById('apiKeyDisplay').textContent;
+            try {
+                await navigator.clipboard.writeText(key);
+                const btn = document.getElementById('copyKeyBtn');
+                const originalHTML = btn.innerHTML;
+                btn.innerHTML = '<i class="material-icons">check</i> 已複製！';
+                setTimeout(() => {
+                    btn.innerHTML = originalHTML;
+                }, 2000);
+            } catch (error) {
+                alert('複製失敗，請手動複製');
+            }
+        });
+
+        document.getElementById('closeKeyModalBtn').addEventListener('click', () => {
+            document.getElementById('showKeyModal').classList.remove('active');
+        });
+
+        // Deactivate key
+        async function deactivateKey(keyId) {
+            if (!confirm('確定要停用此密鑰嗎？')) return;
+
+            try {
+                const response = await fetch(`/admin/api-keys/${keyId}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'X-Admin-Password': adminPassword,
+                        'X-CSRF-Token': csrfToken // Phase 3: Include CSRF token
+                    }
+                });
+
+                if (response.ok) {
+                    loadKeys();
+                } else {
+                    alert('停用失敗');
+                }
+            } catch (error) {
+                alert('連接失敗');
+            }
+        }
+
+        // Activate key
+        async function activateKey(keyId) {
+            try {
+                const response = await fetch(`/admin/api-keys/${keyId}/activate`, {
+                    method: 'PATCH',
+                    headers: {
+                        'X-Admin-Password': adminPassword,
+                        'X-CSRF-Token': csrfToken // Phase 3: Include CSRF token
+                    }
+                });
+
+                if (response.ok) {
+                    loadKeys();
+                } else {
+                    const data = await response.json();
+                    alert(data.error || '啟用失敗');
+                }
+            } catch (error) {
+                alert('連接失敗');
+            }
+        }
+    </script>
+</body>
+</html>

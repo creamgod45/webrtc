@@ -97,15 +97,43 @@ npm start
 # 啟動開發服務器
 npm run dev
 
-# 執行資料庫遷移
-npm run migrate
+# 啟動生產服務器
+npm start
 
 # 代碼檢查
 npm run lint
-
-# 啟動生產服務器
-npm start
 ```
+
+### 資料庫遷移命令
+
+```bash
+# 執行資料庫遷移（Sequelize CLI）
+npm run migrate:up          # 應用所有待執行的遷移
+npm run migrate:down        # 回滾最近一次遷移
+npm run migrate:down:all    # 回滾所有遷移
+npm run migrate:status      # 查看遷移狀態
+npm run migrate:create -- migration-name  # 創建新的遷移文件
+
+# 舊版遷移（向後兼容）
+npm run migrate             # 使用 sync() 同步所有模型
+```
+
+### 房間管理命令
+
+```bash
+# 清除房間數據
+npm run rooms:clear         # 刪除非活躍房間（帶確認提示）
+npm run rooms:clear:all     # 刪除所有房間（帶確認提示）
+npm run rooms:clear:force   # 刪除所有房間（跳過確認，用於自動化）
+
+# 查看幫助
+node scripts/clear-rooms.js --help
+```
+
+**注意**：
+- 房間瀏覽功能默認只顯示數據庫中的活躍公開房間
+- 清除操作不可恢復，建議先備份數據庫
+- 詳細說明請參考 [房間管理指南](./ROOM-MANAGEMENT-GUIDE.md)
 
 ## API 端點
 

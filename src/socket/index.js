@@ -1,11 +1,69 @@
 const {Server} = require('socket.io');
 const {Room, User, Message, IceCandidate, SdpSignal} = require('../models');
 const {Op} = require('sequelize');
+const {
+  validateRoomId,
+  validateUserId,
+  validateMessageText
+} = require('../middleware/security');
+
+// ===== Message Encryption Functions =====
+// Simple shift cipher encryption for WebSocket messages
+// Format: "shift:encrypted_text"
+// IMPORTANT: Must match client-side implementation
+function encryptMessage(text) {
+  if (!text || text.length === 0) return text;
+
+  // Random shift between 1-9 (single digit for simplicity)
+  const shift = Math.floor(Math.random() * 9) + 1;
+
+  // Apply shift cipher to each character
+  const encrypted = text.split('').map(char => {
+    const code = char.charCodeAt(0);
+    return String.fromCharCode(code + shift);
+  }).join('');
+
+  // Return format: "shift:encrypted_text"
+  return `${shift}:${encrypted}`;
+}
+
+function decryptMessage(encryptedData) {
+  if (!encryptedData || typeof encryptedData !== 'string') return encryptedData;
+
+  // Check if message is encrypted (contains shift prefix)
+  if (!encryptedData.includes(':')) {
+    return encryptedData; // Not encrypted, return as-is
+  }
+
+  const parts = encryptedData.split(':', 2);
+  if (parts.length !== 2) {
+    return encryptedData; // Invalid format
+  }
+
+  const shift = parseInt(parts[0]);
+  const encrypted = parts[1];
+
+  // Validate shift value
+  if (isNaN(shift) || shift < 1 || shift > 9) {
+    return encryptedData; // Invalid shift
+  }
+
+  // Decrypt by reversing the shift
+  const decrypted = encrypted.split('').map(char => {
+    const code = char.charCodeAt(0);
+    return String.fromCharCode(code - shift);
+  }).join('');
+
+  return decrypted;
+}
 
 function initializeSocket(httpServer) {
     const io = new Server(httpServer, {
         path: '/socket.io',
-        cors: { origin: process.env.CORS_ORIGIN || '*', methods: ['GET','POST'] }
+        cors: { origin: process.env.CORS_ORIGIN || '*', methods: ['GET','POST'] },
+        pingTimeout: 30000,  // 30 seconds timeout
+        pingInterval: 10000, // Send ping every 10 seconds
+        connectTimeout: 45000 // Connection timeout: 45 seconds
     });
 
     io.on('connection', (socket) => {
@@ -13,36 +71,77 @@ function initializeSocket(httpServer) {
 
         let currentUserId = null;
         let currentRoomId = null;
+        let heartbeatTimer = null;
+
+        // Heartbeat mechanism - reset timer on any activity
+        function resetHeartbeat() {
+            if (heartbeatTimer) {
+                clearTimeout(heartbeatTimer);
+            }
+
+            heartbeatTimer = setTimeout(async () => {
+                console.log(`⏰ User ${currentUserId} timed out (no activity for 30s)`);
+
+                // Disconnect user and free up space
+                if (currentRoomId && currentUserId) {
+                    try {
+                        // Update user status
+                        await User.update(
+                            { is_connected: false, left_at: new Date() },
+                            { where: { user_id: currentUserId, room_id: currentRoomId } }
+                        );
+
+                        // Get room info
+                        const room = await Room.findByPk(currentRoomId);
+                        if (room) {
+                            // Notify other users
+                            socket.to(room.room_id).emit('user-left', {
+                                userId: currentUserId,
+                                reason: 'timeout'
+                            });
+
+                            console.log(`🚫 Removed ${currentUserId} from ${room.room_id} due to timeout`);
+                        }
+                    } catch (error) {
+                        console.error('Error handling timeout:', error);
+                    }
+                }
+
+                // Disconnect socket
+                socket.disconnect(true);
+            }, 30000); // 30 seconds timeout
+        }
+
+        // Start heartbeat timer on connection
+        resetHeartbeat();
 
         // Join room
         socket.on('join-room', async (data) => {
+            resetHeartbeat(); // Reset timeout on activity
             try {
                 const {roomId, userId} = data;
 
-                // Input validation
-                if (!roomId || typeof roomId !== 'string' || roomId.length > 50) {
-                    return socket.emit('error', {message: '無效的房間ID'});
+                // Validate inputs using security functions
+                let validatedRoomId, validatedUserId;
+
+                try {
+                    validatedRoomId = validateRoomId(roomId);
+                } catch (error) {
+                    return socket.emit('error', {message: '無效的房間ID: ' + error.message});
                 }
 
-                if (!roomId.trim()) {
-                    return socket.emit('error', {message: '房間ID不能為空'});
-                }
-
-                if (userId && (typeof userId !== 'string' || userId.length > 50)) {
-                    return socket.emit('error', {message: '無效的用戶ID'});
-                }
-
-                // Sanitize inputs - only allow alphanumeric, hyphens, and underscores
-                const sanitizedRoomId = roomId.trim().replace(/[^a-zA-Z0-9-_]/g, '');
-                const sanitizedUserId = userId ? userId.trim().replace(/[^a-zA-Z0-9-_]/g, '') : null;
-
-                // Additional validation after sanitization
-                if (!sanitizedRoomId || sanitizedRoomId.length < 1) {
-                    return socket.emit('error', {message: '房間ID格式無效'});
+                if (userId) {
+                    try {
+                        validatedUserId = validateUserId(userId);
+                    } catch (error) {
+                        return socket.emit('error', {message: '無效的用戶ID: ' + error.message});
+                    }
+                } else {
+                    validatedUserId = null;
                 }
 
                 // Find or create room
-                let room = await Room.findOne({where: {room_id: sanitizedRoomId}});
+                let room = await Room.findOne({where: {room_id: validatedRoomId}});
 
                 if (!room) {
                     return socket.emit('error', {message: '房間不存在'});
@@ -58,7 +157,7 @@ function initializeSocket(httpServer) {
                 }
 
                 // Generate user ID if not provided
-                const newUserId = sanitizedUserId || `user${userCount + 1}`;
+                const newUserId = validatedUserId || `user${userCount + 1}`;
 
                 // Create or update user
                 const [user, created] = await User.findOrCreate({
@@ -77,7 +176,7 @@ function initializeSocket(httpServer) {
                 currentRoomId = room.id;
 
                 // Join socket room
-                socket.join(sanitizedRoomId);
+                socket.join(validatedRoomId);
 
                 // Get all connected users
                 const connectedUsers = await User.findAll({
@@ -88,15 +187,15 @@ function initializeSocket(httpServer) {
 
                 // Notify user
                 socket.emit('joined-room', {
-                    roomId: sanitizedRoomId, userId: newUserId, users: userList
+                    roomId: validatedRoomId, userId: newUserId, users: userList
                 });
 
                 // Notify others in room
-                socket.to(sanitizedRoomId).emit('user-joined', {
+                socket.to(validatedRoomId).emit('user-joined', {
                     userId: newUserId, users: userList
                 });
 
-                console.log(`👤 User ${newUserId} joined room ${sanitizedRoomId}`);
+                console.log(`👤 User ${newUserId} joined room ${validatedRoomId}`);
             } catch (error) {
                 console.error('Error joining room:', error);
                 socket.emit('error', {message: '加入房間失敗'});
@@ -105,64 +204,61 @@ function initializeSocket(httpServer) {
 
         // Create room
         socket.on('create-room', async (data) => {
+            resetHeartbeat(); // Reset timeout on activity
             try {
                 const {roomId, userId} = data;
 
-                // Validate and sanitize roomId if provided
-                let sanitizedRoomId;
+                // Validate roomId if provided
+                let validatedRoomId;
                 if (roomId) {
-                    if (typeof roomId !== 'string' || roomId.length > 50) {
-                        return socket.emit('error', {message: '無效的房間ID'});
-                    }
-                    sanitizedRoomId = roomId.trim().replace(/[^a-zA-Z0-9-_]/g, '');
-                    if (!sanitizedRoomId) {
-                        return socket.emit('error', {message: '房間ID格式無效'});
+                    try {
+                        validatedRoomId = validateRoomId(roomId);
+                    } catch (error) {
+                        return socket.emit('error', {message: '無效的房間ID: ' + error.message});
                     }
                 } else {
-                    sanitizedRoomId = Math.random().toString(36).substring(2, 8);
+                    validatedRoomId = Math.random().toString(36).substring(2, 8);
                 }
 
-                // Validate and sanitize userId if provided
-                let sanitizedUserId;
+                // Validate userId if provided
+                let validatedUserId;
                 if (userId) {
-                    if (typeof userId !== 'string' || userId.length > 50) {
-                        return socket.emit('error', {message: '無效的用戶ID'});
-                    }
-                    sanitizedUserId = userId.trim().replace(/[^a-zA-Z0-9-_]/g, '');
-                    if (!sanitizedUserId) {
-                        return socket.emit('error', {message: '用戶ID格式無效'});
+                    try {
+                        validatedUserId = validateUserId(userId);
+                    } catch (error) {
+                        return socket.emit('error', {message: '無效的用戶ID: ' + error.message});
                     }
                 } else {
-                    sanitizedUserId = 'user1';
+                    validatedUserId = 'user1';
                 }
 
                 // Check if room already exists
-                const existingRoom = await Room.findOne({where: {room_id: sanitizedRoomId}});
+                const existingRoom = await Room.findOne({where: {room_id: validatedRoomId}});
                 if (existingRoom) {
                     return socket.emit('error', {message: '房間ID已存在'});
                 }
 
                 // Create room
                 const room = await Room.create({
-                    room_id: sanitizedRoomId, created_by: sanitizedUserId, is_active: true
+                    room_id: validatedRoomId, created_by: validatedUserId, is_active: true
                 });
 
                 // Create first user
                 await User.create({
-                    user_id: sanitizedUserId, room_id: room.id, socket_id: socket.id, is_connected: true
+                    user_id: validatedUserId, room_id: room.id, socket_id: socket.id, is_connected: true
                 });
 
-                currentUserId = sanitizedUserId;
+                currentUserId = validatedUserId;
                 currentRoomId = room.id;
 
                 // Join socket room
-                socket.join(sanitizedRoomId);
+                socket.join(validatedRoomId);
 
                 socket.emit('room-created', {
-                    roomId: sanitizedRoomId, userId: sanitizedUserId, users: [sanitizedUserId]
+                    roomId: validatedRoomId, userId: validatedUserId, users: [validatedUserId]
                 });
 
-                console.log(`🏠 Room ${sanitizedRoomId} created by ${sanitizedUserId}`);
+                console.log(`🏠 Room ${validatedRoomId} created by ${validatedUserId}`);
             } catch (error) {
                 console.error('Error creating room:', error);
                 socket.emit('error', {message: '建立房間失敗'});
@@ -171,6 +267,7 @@ function initializeSocket(httpServer) {
 
         // WebRTC Signaling: Send Offer
         socket.on('send-offer', async (data) => {
+            resetHeartbeat(); // Reset timeout on activity
             try {
                 const {roomId, toUser, offer} = data;
 
@@ -230,6 +327,7 @@ function initializeSocket(httpServer) {
 
         // WebRTC Signaling: Send Answer
         socket.on('send-answer', async (data) => {
+            resetHeartbeat(); // Reset timeout on activity
             try {
                 const {roomId, toUser, answer} = data;
 
@@ -289,6 +387,7 @@ function initializeSocket(httpServer) {
 
         // WebRTC Signaling: Send ICE Candidate
         socket.on('send-ice-candidate', async (data) => {
+            resetHeartbeat(); // Reset timeout on activity
             try {
                 const {roomId, toUser, candidate} = data;
 
@@ -344,27 +443,28 @@ function initializeSocket(httpServer) {
 
         // Send a chat message
         socket.on('send-message', async (data) => {
+            resetHeartbeat(); // Reset timeout on activity
             try {
                 const {roomId, text} = data;
 
-                // Input validation
-                if (!roomId || typeof roomId !== 'string') {
-                    return socket.emit('error', {message: '無效的房間ID'});
+                // Validate roomId
+                let validatedRoomId;
+                try {
+                    validatedRoomId = validateRoomId(roomId);
+                } catch (error) {
+                    return socket.emit('error', {message: '無效的房間ID: ' + error.message});
                 }
 
-                if (!text || typeof text !== 'string' || text.length > 1000) {
-                    return socket.emit('error', {message: '無效的訊息內容'});
+                // Validate message text (encrypted format)
+                // Note: Message is encrypted by client (format: "shift:encrypted_text")
+                let validatedText;
+                try {
+                    validatedText = validateMessageText(text);
+                } catch (error) {
+                    return socket.emit('error', {message: '無效的訊息內容: ' + error.message});
                 }
 
-                // Sanitize inputs
-                const sanitizedRoomId = roomId.trim().replace(/[^a-zA-Z0-9-_]/g, '');
-                const sanitizedText = text.trim();
-
-                if (!sanitizedRoomId || !sanitizedText) {
-                    return socket.emit('error', {message: '參數格式無效'});
-                }
-
-                const room = await Room.findOne({where: {room_id: sanitizedRoomId}});
+                const room = await Room.findOne({where: {room_id: validatedRoomId}});
                 if (!room) {
                     return socket.emit('error', {message: '房間不存在'});
                 }
@@ -374,24 +474,68 @@ function initializeSocket(httpServer) {
                     return socket.emit('error', {message: '您不在此房間中'});
                 }
 
+                // Store encrypted message in database (for security)
                 const message = await Message.create({
-                    room_id: room.id, sender_id: currentUserId, text: sanitizedText, timestamp: new Date()
+                    room_id: room.id,
+                    sender_id: currentUserId,
+                    text: validatedText,
+                    timestamp: new Date()
                 });
 
-                // Broadcast message to room
-                io.to(sanitizedRoomId).emit('receive-message', {
-                    senderId: currentUserId, text: sanitizedText, timestamp: message.timestamp
+                // Broadcast encrypted message to room
+                // Clients will decrypt on receipt
+                io.to(validatedRoomId).emit('receive-message', {
+                    senderId: currentUserId,
+                    text: validatedText,
+                    timestamp: message.timestamp
                 });
 
-                console.log(`💬 Message from ${currentUserId} in ${sanitizedRoomId}: ${sanitizedText}`);
+                // Log decrypted message for debugging (optional - comment out in production)
+                const decryptedForLog = decryptMessage(validatedText);
+                console.log(`💬 Message from ${currentUserId} in ${validatedRoomId}: ${decryptedForLog.substring(0, 50)}...`);
             } catch (error) {
                 console.error('Error sending message:', error);
                 socket.emit('error', {message: '發送訊息失敗'});
             }
         });
 
-        return io;
+        // Handle disconnect
+        socket.on('disconnect', async (reason) => {
+            console.log(`❌ User disconnected: ${socket.id}, reason: ${reason}`);
+
+            // Clear heartbeat timer
+            if (heartbeatTimer) {
+                clearTimeout(heartbeatTimer);
+                heartbeatTimer = null;
+            }
+
+            // Update user status in database
+            if (currentRoomId && currentUserId) {
+                try {
+                    await User.update(
+                        { is_connected: false, left_at: new Date() },
+                        { where: { user_id: currentUserId, room_id: currentRoomId } }
+                    );
+
+                    // Get room info
+                    const room = await Room.findByPk(currentRoomId);
+                    if (room) {
+                        // Notify other users
+                        socket.to(room.room_id).emit('user-left', {
+                            userId: currentUserId,
+                            reason: 'disconnect'
+                        });
+
+                        console.log(`👋 User ${currentUserId} left room ${room.room_id}`);
+                    }
+                } catch (error) {
+                    console.error('Error handling disconnect:', error);
+                }
+            }
+        });
     });
+
+    return io;
 }
 
 module.exports = initializeSocket;

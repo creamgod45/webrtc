@@ -56,6 +56,10 @@
                     <i class="material-icons">meeting_room</i>
                     <span>加入房間</span>
                 </button>
+                <button class="control-btn" id="lobbyBtn">
+                    <i class="material-icons">view_list</i>
+                    <span>瀏覽房間</span>
+                </button>
             </div>
 
             <!-- Video Grid -->
@@ -72,6 +76,10 @@
                     <i class="material-icons">mic_off</i>
                     <span>靜音</span>
                 </button>
+                <button class="action-btn settings-btn" id="audioSettingsBtn">
+                    <i class="material-icons">settings_voice</i>
+                    <span>音頻設置</span>
+                </button>
                 <button class="action-btn share-btn" disabled id="shareButton">
                     <i class="material-icons">share</i>
                     <span>分享</span>
@@ -85,6 +93,11 @@
 
         <!-- Right Panel: Sidebar -->
         <div class="right-panel">
+            <!-- Close Button for Mobile -->
+            <button class="sidebar-close-btn" id="sidebar-close-btn" aria-label="關閉聊天室">
+                <i class="material-icons">close</i>
+            </button>
+
             <!-- Online Users Section -->
             <div class="sidebar-section">
                 <div class="section-header">
@@ -111,6 +124,15 @@
             </div>
         </div>
     </div>
+
+    <!-- Mobile Chat Toggle Button (Floating Action Button) -->
+    <button id="mobile-chat-toggle" class="mobile-chat-toggle" aria-label="開啟聊天室">
+        <i class="material-icons">chat</i>
+        <span class="unread-badge" id="unread-badge" style="display: none;">0</span>
+    </button>
+
+    <!-- Mobile Chat Overlay (backdrop) -->
+    <div id="mobile-chat-overlay" class="mobile-chat-overlay"></div>
 
     <!-- Join Room Dialog -->
     <div class="mdc-dialog" id="room-dialog" role="alertdialog" aria-modal="true">
@@ -268,6 +290,263 @@
                             <span>Telegram</span>
                         </button>
                     </div>
+                </div>
+            </div>
+        </div>
+        <div class="mdc-dialog__scrim"></div>
+    </div>
+
+    <!-- Room Lobby Dialog -->
+    <div class="mdc-dialog" id="lobby-dialog" role="alertdialog" aria-modal="true">
+        <div class="mdc-dialog__container">
+            <div class="mdc-dialog__surface lobby-dialog-surface">
+                <div class="lobby-dialog-header">
+                    <i class="material-icons">view_list</i>
+                    <h2>房間列表</h2>
+                    <button class="dialog-close-btn" data-mdc-dialog-action="close">
+                        <i class="material-icons">close</i>
+                    </button>
+                </div>
+
+                <div class="lobby-dialog-content">
+                    <!-- Loading state -->
+                    <div id="lobby-loading" class="lobby-loading">
+                        <div class="spinner"></div>
+                        <p>載入中...</p>
+                    </div>
+
+                    <!-- Empty state -->
+                    <div id="lobby-empty" class="lobby-empty" style="display: none;">
+                        <i class="material-icons">inbox</i>
+                        <p>目前沒有公開房間</p>
+                        <button class="mdc-button mdc-button--raised" id="create-room-from-lobby">
+                            <span class="mdc-button__label">建立房間</span>
+                        </button>
+                    </div>
+
+                    <!-- Room list -->
+                    <div id="lobby-room-list" class="lobby-room-list" style="display: none;"></div>
+                </div>
+
+                <div class="lobby-dialog-actions">
+                    <button class="mdc-button" id="refresh-lobby-btn">
+                        <i class="material-icons">refresh</i>
+                        <span class="mdc-button__label">重新整理</span>
+                    </button>
+                    <button class="mdc-button mdc-button--raised" id="create-new-room-btn">
+                        <span class="mdc-button__label">建立房間</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+        <div class="mdc-dialog__scrim"></div>
+    </div>
+
+    <!-- Audio Settings Dialog -->
+    <div class="mdc-dialog" id="audio-settings-dialog" role="alertdialog" aria-modal="true">
+        <div class="mdc-dialog__container">
+            <div class="mdc-dialog__surface audio-settings-surface">
+                <div class="audio-settings-header">
+                    <i class="material-icons">settings_voice</i>
+                    <h2>音頻設置</h2>
+                    <button class="dialog-close-btn" data-mdc-dialog-action="close">
+                        <i class="material-icons">close</i>
+                    </button>
+                </div>
+
+                <div class="audio-settings-content">
+                    <!-- Echo Cancellation Mode Selection -->
+                    <div class="settings-section">
+                        <h3 class="settings-section-title">
+                            <i class="material-icons">hearing</i>
+                            回聲消除方案
+                        </h3>
+
+                        <div class="radio-group">
+                            <label class="radio-option" data-mode="native">
+                                <input type="radio" name="echo-mode" value="native" checked>
+                                <div class="radio-content">
+                                    <div class="radio-header">
+                                        <span class="radio-title">方案 1: 瀏覽器原生 AEC</span>
+                                        <span class="badge badge-default">默認</span>
+                                    </div>
+                                    <p class="radio-description">使用瀏覽器內建的回聲消除功能，效果中等，適合大多數場景。</p>
+                                    <div class="radio-specs">
+                                        <span class="spec-item">⚡ 極低負載</span>
+                                        <span class="spec-item">⭐ 中等效果</span>
+                                        <span class="spec-item">✅ 相容性最佳</span>
+                                    </div>
+                                </div>
+                            </label>
+
+                            <label class="radio-option" data-mode="webaudio">
+                                <input type="radio" name="echo-mode" value="webaudio">
+                                <div class="radio-content">
+                                    <div class="radio-header">
+                                        <span class="radio-title">方案 2: Web Audio API 增強</span>
+                                        <span class="badge badge-recommended">推薦</span>
+                                    </div>
+                                    <p class="radio-description">使用 AudioContext 音頻處理管道，添加動態壓縮和濾波器。</p>
+                                    <div class="radio-specs">
+                                        <span class="spec-item">⚡ 低負載</span>
+                                        <span class="spec-item">⭐⭐⭐ 良好效果</span>
+                                        <span class="spec-item">🎛️ 可調參數</span>
+                                    </div>
+                                </div>
+                            </label>
+
+                            <label class="radio-option" data-mode="advanced">
+                                <input type="radio" name="echo-mode" value="advanced">
+                                <div class="radio-content">
+                                    <div class="radio-header">
+                                        <span class="radio-title">方案 3: WebRTC 高級調優</span>
+                                        <span class="badge badge-pro">專業</span>
+                                    </div>
+                                    <p class="radio-description">詳細配置 WebRTC 參數，包括採樣率、延遲和聲道設置。</p>
+                                    <div class="radio-specs">
+                                        <span class="spec-item">⚡ 極低負載</span>
+                                        <span class="spec-item">⭐⭐⭐⭐ 優秀效果</span>
+                                        <span class="spec-item">🔧 精細控制</span>
+                                    </div>
+                                </div>
+                            </label>
+
+                            <label class="radio-option" data-mode="ai">
+                                <input type="radio" name="echo-mode" value="ai">
+                                <div class="radio-content">
+                                    <div class="radio-header">
+                                        <span class="radio-title">方案 5: AI 降噪 (RNNoise)</span>
+                                        <span class="badge badge-ai">AI</span>
+                                    </div>
+                                    <p class="radio-description">使用 WebAssembly AI 模型進行深度降噪，效果最佳但消耗較高。</p>
+                                    <div class="radio-specs">
+                                        <span class="spec-item">⚡⚡ 中等負載</span>
+                                        <span class="spec-item">⭐⭐⭐⭐⭐ 極佳效果</span>
+                                        <span class="spec-item">🤖 AI 驅動</span>
+                                    </div>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Advanced Settings (shown when Web Audio API or Advanced mode is selected) -->
+                    <div class="settings-section" id="advanced-audio-settings" style="display: none;">
+                        <h3 class="settings-section-title">
+                            <i class="material-icons">tune</i>
+                            高級參數
+                        </h3>
+
+                        <!-- Echo Cancellation Toggle -->
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label class="setting-label">回聲消除</label>
+                                <span class="setting-hint">移除揚聲器回授到麥克風的聲音</span>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="echo-cancellation-toggle" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+
+                        <!-- Noise Suppression Toggle -->
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label class="setting-label">噪音抑制</label>
+                                <span class="setting-hint">過濾背景噪音（風扇、鍵盤等）</span>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="noise-suppression-toggle" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+
+                        <!-- Auto Gain Control Toggle -->
+                        <div class="setting-item">
+                            <div class="setting-info">
+                                <label class="setting-label">自動增益控制</label>
+                                <span class="setting-hint">自動調整麥克風音量</span>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="auto-gain-toggle" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+
+                        <!-- Input Gain Slider (for Web Audio mode) -->
+                        <div class="setting-item" id="input-gain-setting" style="display: none;">
+                            <div class="setting-info">
+                                <label class="setting-label">輸入增益</label>
+                                <span class="setting-hint">手動調整麥克風靈敏度</span>
+                            </div>
+                            <div class="slider-container">
+                                <input type="range" id="input-gain-slider" min="0" max="200" value="100" class="audio-slider">
+                                <span id="input-gain-value" class="slider-value">100%</span>
+                            </div>
+                        </div>
+
+                        <!-- Sample Rate Selection (for Advanced mode) -->
+                        <div class="setting-item" id="sample-rate-setting" style="display: none;">
+                            <div class="setting-info">
+                                <label class="setting-label">採樣率</label>
+                                <span class="setting-hint">音頻質量（越高越清晰但消耗更多）</span>
+                            </div>
+                            <select id="sample-rate-select" class="audio-select">
+                                <option value="16000">16 kHz (低質量)</option>
+                                <option value="24000">24 kHz (標準)</option>
+                                <option value="48000" selected>48 kHz (高質量)</option>
+                            </select>
+                        </div>
+
+                        <!-- AI Noise Reduction Strength (for AI mode) -->
+                        <div class="setting-item" id="ai-strength-setting" style="display: none;">
+                            <div class="setting-info">
+                                <label class="setting-label">AI 降噪強度</label>
+                                <span class="setting-hint">降噪力度（越高效果越強）</span>
+                            </div>
+                            <div class="slider-container">
+                                <input type="range" id="ai-strength-slider" min="0" max="100" value="70" class="audio-slider">
+                                <span id="ai-strength-value" class="slider-value">70%</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Audio Visualization (Optional) -->
+                    <div class="settings-section">
+                        <h3 class="settings-section-title">
+                            <i class="material-icons">graphic_eq</i>
+                            音頻監控
+                        </h3>
+                        <div class="audio-visualizer">
+                            <canvas id="audio-visualizer-canvas" width="400" height="100"></canvas>
+                            <p class="visualizer-hint">開啟麥克風後顯示音頻波形</p>
+                        </div>
+                    </div>
+
+                    <!-- Status Info -->
+                    <div class="settings-section">
+                        <div class="status-info">
+                            <div class="status-item">
+                                <i class="material-icons">info</i>
+                                <span id="audio-status-text">當前方案：瀏覽器原生 AEC</span>
+                            </div>
+                            <div class="status-item">
+                                <i class="material-icons">memory</i>
+                                <span id="audio-performance-text">性能影響：極低</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="audio-settings-actions">
+                    <button type="button" class="dialog-btn cancel-btn" data-mdc-dialog-action="cancel">
+                        取消
+                    </button>
+                    <button type="button" class="dialog-btn reset-btn" id="resetAudioSettingsBtn">
+                        重置
+                    </button>
+                    <button type="button" class="dialog-btn apply-btn" id="applyAudioSettingsBtn" data-mdc-dialog-action="apply">
+                        應用
+                    </button>
                 </div>
             </div>
         </div>

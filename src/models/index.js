@@ -6,6 +6,7 @@ const IceCandidate = require('./IceCandidate');
 const SdpSignal = require('./SdpSignal');
 const BannedUser = require('./BannedUser');
 const RoomModerator = require('./RoomModerator');
+const ApiKey = require('./ApiKey');
 
 // Define relationships
 Room.hasMany(User, { foreignKey: 'room_id', as: 'users', onDelete: 'CASCADE' });
@@ -34,5 +35,6 @@ module.exports = {
   IceCandidate,
   SdpSignal,
   BannedUser,
-  RoomModerator
+  RoomModerator,
+  ApiKey
 };
