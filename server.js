@@ -1,3 +1,10 @@
+/** @typedef {import('express').Application} Application */
+/** @typedef {import('express').Request} Request */
+/** @typedef {import('express').Response} Response */
+/** @typedef {import('express').NextFunction} NextFunction */
+/** @typedef {import('http').Server} HttpServer */
+/** @typedef {import('socket.io').Server} SocketIOServer */
+
 const express = require('express');
 const http = require('http');
 const path = require('path');
@@ -17,11 +24,15 @@ const { verifyApiKey } = require('./src/middleware/apiKeyAuth');
 const { ensureToken, verifyToken, optionalVerifyToken } = require('./src/middleware/csrfProtection');
 const { verifyHybridAuth, optionalHybridAuth } = require('./src/middleware/hybridAuth');
 
+/** @type {Application} */
 const app = express();
+/** @type {HttpServer} */
 const server = http.createServer(app);
+/** @type {number} */
 const PORT = process.env.PORT || 3000;
 
 // Generate admin password on startup (random 32 characters)
+/** @type {string} */
 const ADMIN_PASSWORD = crypto.randomBytes(16).toString('base64');
 setAdminPassword(ADMIN_PASSWORD);
 console.log('\n' + '='.repeat(80));
@@ -30,6 +41,7 @@ console.log('   ' + ADMIN_PASSWORD);
 console.log('='.repeat(80) + '\n');
 
 // Initialize Socket.IO
+/** @type {SocketIOServer} */
 const io = initializeSocket(server);
 
 // Middleware
@@ -97,6 +109,13 @@ app.use(helmet({
   }
 }));
 
+/**
+ * Global error handler middleware
+ * @param {Error} err - Error object
+ * @param {Request} req - Express request
+ * @param {Response} res - Express response
+ * @param {NextFunction} next - Next middleware function
+ */
 app.use((err, req, res, next) => {
     console.error(err.stack);
     res.status(500).json({
@@ -112,11 +131,20 @@ app.set('io', io);
 app.use(express.static(path.join(__dirname, 'public')));
 
 // API Routes
+/**
+ * Health check endpoint
+ * @param {Request} req - Express request
+ * @param {Response} res - Express response
+ */
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
-// Session info endpoint (for user identification)
+/**
+ * Session info endpoint (for user identification)
+ * @param {Request} req - Express request
+ * @param {Response} res - Express response
+ */
 app.get('/api/session', (req, res) => {
   res.json({
     sessionId: req.sessionID,
@@ -124,7 +152,11 @@ app.get('/api/session', (req, res) => {
   });
 });
 
-// CSRF token endpoint (Phase 3: CSRF protection)
+/**
+ * CSRF token endpoint (Phase 3: CSRF protection)
+ * @param {Request} req - Express request
+ * @param {Response} res - Express response
+ */
 app.get('/api/csrf-token', (req, res) => {
   res.json({
     csrfToken: req.session.csrfToken,
@@ -142,7 +174,13 @@ app.use('/admin', adminRoutes);
 // Either authentication method is accepted
 app.use('/api/rooms', verifyHybridAuth, roomRoutes);
 
-// Error handling middleware
+/**
+ * Error handling middleware
+ * @param {Error} err - Error object
+ * @param {Request} req - Express request
+ * @param {Response} res - Express response
+ * @param {NextFunction} next - Next middleware function
+ */
 app.use((err, req, res, next) => {
   console.error(err.stack);
   res.status(500).json({
@@ -151,7 +189,10 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Start server
+/**
+ * Start the HTTP server and initialize database connection
+ * @returns {Promise<void>}
+ */
 async function startServer() {
   try {
     // Test database connection

@@ -1,5 +1,20 @@
+/** @typedef {import('sequelize').Model} Model */
+/** @typedef {import('sequelize').DataTypes} DataTypes */
+
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../database/config');
+
+/**
+ * SdpSignal model for WebRTC SDP signaling (offers and answers)
+ * @typedef {Object} SdpSignalAttributes
+ * @property {string} id - UUID primary key
+ * @property {string} room_id - UUID foreign key to rooms table
+ * @property {string} from_user - User ID sending the SDP
+ * @property {string} to_user - User ID receiving the SDP
+ * @property {'offer'|'answer'} type - Type of SDP message
+ * @property {Object} sdp - SDP data (JSONB)
+ * @property {Date} created_at - When signal was created
+ */
 
 const SdpSignal = sequelize.define('SdpSignal', {
   id: {
