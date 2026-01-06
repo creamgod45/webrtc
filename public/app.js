@@ -785,13 +785,10 @@ function sendMessage() {
   // 6. HTML 編碼
   const encodedText = htmlencode(messageText);
 
-  // 7. 加密訊息（防止簡單封包監聽）
-  const encryptedText = encryptMessage(encodedText);
-
-  // 8. 發送加密訊息
+  // 7. 發送訊息 (WSS 提供傳輸層加密)
   socket.emit('send-message', {
     roomId,
-    text: encryptedText
+    text: encodedText
   });
 
   // 9. 清空輸入框
@@ -805,15 +802,12 @@ function sendMessage() {
 socket.on('receive-message', (data) => {
   const { senderId, text, timestamp } = data;
 
-  // 1. 解密訊息
-  const decryptedText = decryptMessage(text);
+  // 1. 解碼 HTML
+  const decodedText = htmldecode(text);
 
-  // 2. 解碼 HTML
-  const decodedText = htmldecode(decryptedText);
-
-  // 3. 再次編碼以確保安全（縱深防禦）
+  // 2. 再次編碼以確保安全（縱深防禦）
   const safeText = htmlencode(decodedText);
-  
+
   // 顯示消息
   displayMessage(senderId, safeText, timestamp);
 });
@@ -1129,54 +1123,10 @@ function showShareDialog() {
   shareDialog.open();
 }
 
-// ===== Message Encryption Functions =====
-// Simple shift cipher encryption for WebSocket messages
-// Format: "shift:encrypted_text"
-function encryptMessage(text) {
-  if (!text || text.length === 0) return text;
-
-  // Random shift between 1-9 (single digit for simplicity)
-  const shift = Math.floor(Math.random() * 9) + 1;
-
-  // Apply shift cipher to each character
-  const encrypted = text.split('').map(char => {
-    const code = char.charCodeAt(0);
-    return String.fromCharCode(code + shift);
-  }).join('');
-
-  // Return format: "shift:encrypted_text"
-  return `${shift}:${encrypted}`;
-}
-
-function decryptMessage(encryptedData) {
-  if (!encryptedData || typeof encryptedData !== 'string') return encryptedData;
-
-  // Check if message is encrypted (contains shift prefix)
-  if (!encryptedData.includes(':')) {
-    return encryptedData; // Not encrypted, return as-is
-  }
-
-  const parts = encryptedData.split(':', 2);
-  if (parts.length !== 2) {
-    return encryptedData; // Invalid format
-  }
-
-  const shift = parseInt(parts[0]);
-  const encrypted = parts[1];
-
-  // Validate shift value
-  if (isNaN(shift) || shift < 1 || shift > 9) {
-    return encryptedData; // Invalid shift
-  }
-
-  // Decrypt by reversing the shift
-  const decrypted = encrypted.split('').map(char => {
-    const code = char.charCodeAt(0);
-    return String.fromCharCode(code - shift);
-  }).join('');
-
-  return decrypted;
-}
+// ===== Message Encryption Removed =====
+// Fixed: Removed insecure shift cipher (CWE-327)
+// WebSocket connections are secured via WSS (TLS encryption) instead
+// No client-side encryption is needed when using WSS
 
 // Check if mobile device
 function isMobile() {

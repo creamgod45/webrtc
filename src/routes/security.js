@@ -13,18 +13,104 @@ const {
   blockIP
 } = require('../middleware/websocketSecurity');
 
+// Import admin authentication middleware
+// Fixed: Add explicit authentication to security routes
+const { getAdminPassword } = require('./admin');
+
+/**
+ * Middleware to verify admin password
+ * Required for all security monitoring endpoints
+ */
+function verifyAdminPassword(req, res, next) {
+  const providedPassword = req.headers['x-admin-password'] || req.body.adminPassword;
+  const ADMIN_PASSWORD = getAdminPassword();
+
+  if (!providedPassword || providedPassword !== ADMIN_PASSWORD) {
+    return res.status(403).json({
+      error: 'Forbidden',
+      message: 'Invalid or missing admin password. Provide via X-Admin-Password header.'
+    });
+  }
+
+  next();
+}
+
+/**
+ * Validate IPv4 address
+ * Fixed: Proper IPv4 validation (CWE-20)
+ */
+function isValidIPv4(ip) {
+  const parts = ip.split('.');
+  if (parts.length !== 4) return false;
+
+  return parts.every(part => {
+    const num = parseInt(part, 10);
+    // Check for valid number, no leading zeros (except '0' itself), and range 0-255
+    return /^\d+$/.test(part) &&
+           num >= 0 &&
+           num <= 255 &&
+           (part === '0' || !part.startsWith('0'));
+  });
+}
+
+/**
+ * Validate IPv6 address
+ * Fixed: Proper IPv6 validation (CWE-20)
+ */
+function isValidIPv6(ip) {
+  // IPv6 can have one :: (zero compression) or be full notation
+  const parts = ip.split(':');
+
+  // Check for :: (zero compression)
+  if (ip.includes('::')) {
+    // Can only have one ::
+    if (ip.split('::').length > 2) return false;
+    // Split by :: to validate both parts
+    const [left, right] = ip.split('::');
+    const leftParts = left ? left.split(':') : [];
+    const rightParts = right ? right.split(':') : [];
+    // Total parts must be <= 8 (allowing compression)
+    if (leftParts.length + rightParts.length >= 8) return false;
+    // Validate each part
+    return [...leftParts, ...rightParts].every(part =>
+      part === '' || /^[0-9a-fA-F]{1,4}$/.test(part)
+    );
+  }
+
+  // Full notation must have exactly 8 parts
+  if (parts.length !== 8) return false;
+
+  // Each part must be 1-4 hex digits
+  return parts.every(part => /^[0-9a-fA-F]{1,4}$/.test(part));
+}
+
+/**
+ * Validate IP address (IPv4 or IPv6)
+ */
+function isValidIP(ip) {
+  return isValidIPv4(ip) || isValidIPv6(ip);
+}
+
 /**
  * GET /admin/security/events
  * Get recent security events
+ * Requires admin authentication via X-Admin-Password header
  */
-router.get('/events', (req, res) => {
+router.get('/events', verifyAdminPassword, (req, res) => {
   try {
     const { severity, type, limit = 100 } = req.query;
     let events = getSecurityEvents();
 
     // Filter by severity if specified
+    // Fixed: Proper input validation to prevent bypass (CWE-20)
     if (severity) {
-      const severityNum = parseInt(severity);
+      const severityNum = parseInt(severity, 10);
+      if (isNaN(severityNum) || severityNum < 1 || severityNum > 4) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid severity level. Must be an integer between 1 and 4.'
+        });
+      }
       events = events.filter(e => e.severity >= severityNum);
     }
 
@@ -54,8 +140,9 @@ router.get('/events', (req, res) => {
 /**
  * GET /admin/security/blocked-ips
  * Get list of blocked IP addresses
+ * Requires admin authentication via X-Admin-Password header
  */
-router.get('/blocked-ips', (req, res) => {
+router.get('/blocked-ips', verifyAdminPassword, (req, res) => {
   try {
     const blockedIPs = getBlockedIPs();
     const now = Date.now();
@@ -88,8 +175,9 @@ router.get('/blocked-ips', (req, res) => {
 /**
  * GET /admin/security/stats
  * Get connection statistics
+ * Requires admin authentication via X-Admin-Password header
  */
-router.get('/stats', (req, res) => {
+router.get('/stats', verifyAdminPassword, (req, res) => {
   try {
     const stats = getConnectionStats();
     const blockedIPs = getBlockedIPs();
@@ -138,8 +226,9 @@ router.get('/stats', (req, res) => {
 /**
  * POST /admin/security/block-ip
  * Manually block an IP address
+ * Requires admin authentication via X-Admin-Password header
  */
-router.post('/block-ip', (req, res) => {
+router.post('/block-ip', verifyAdminPassword, (req, res) => {
   try {
     const { ip, reason, duration } = req.body;
 
@@ -150,12 +239,11 @@ router.post('/block-ip', (req, res) => {
       });
     }
 
-    // Validate IP format (basic check)
-    const ipRegex = /^(\d{1,3}\.){3}\d{1,3}$|^([a-f0-9:]+:+)+[a-f0-9]+$/;
-    if (!ipRegex.test(ip)) {
+    // Fixed: Proper IP validation for both IPv4 and IPv6 (CWE-20)
+    if (!isValidIP(ip)) {
       return res.status(400).json({
         success: false,
-        error: 'Invalid IP address format'
+        error: 'Invalid IP address format. Must be a valid IPv4 or IPv6 address.'
       });
     }
 
@@ -181,8 +269,9 @@ router.post('/block-ip', (req, res) => {
 /**
  * GET /admin/security/event-types
  * Get list of all event types with descriptions
+ * Requires admin authentication via X-Admin-Password header
  */
-router.get('/event-types', (req, res) => {
+router.get('/event-types', verifyAdminPassword, (req, res) => {
   const eventTypes = {
     // Connection events
     'blocked_ip_attempt': {

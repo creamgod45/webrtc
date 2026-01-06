@@ -21,55 +21,10 @@ const {
   validatePayloadSize
 } = require('../middleware/websocketSecurity');
 
-// ===== Message Encryption Functions =====
-// Simple shift cipher encryption for WebSocket messages
-// Format: "shift:encrypted_text"
-// IMPORTANT: Must match client-side implementation
-function encryptMessage(text) {
-  if (!text || text.length === 0) return text;
-
-  // Random shift between 1-9 (single digit for simplicity)
-  const shift = Math.floor(Math.random() * 9) + 1;
-
-  // Apply shift cipher to each character
-  const encrypted = text.split('').map(char => {
-    const code = char.charCodeAt(0);
-    return String.fromCharCode(code + shift);
-  }).join('');
-
-  // Return format: "shift:encrypted_text"
-  return `${shift}:${encrypted}`;
-}
-
-function decryptMessage(encryptedData) {
-  if (!encryptedData || typeof encryptedData !== 'string') return encryptedData;
-
-  // Check if message is encrypted (contains shift prefix)
-  if (!encryptedData.includes(':')) {
-    return encryptedData; // Not encrypted, return as-is
-  }
-
-  const parts = encryptedData.split(':', 2);
-  if (parts.length !== 2) {
-    return encryptedData; // Invalid format
-  }
-
-  const shift = parseInt(parts[0]);
-  const encrypted = parts[1];
-
-  // Validate shift value
-  if (isNaN(shift) || shift < 1 || shift > 9) {
-    return encryptedData; // Invalid shift
-  }
-
-  // Decrypt by reversing the shift
-  const decrypted = encrypted.split('').map(char => {
-    const code = char.charCodeAt(0);
-    return String.fromCharCode(code - shift);
-  }).join('');
-
-  return decrypted;
-}
+// ===== Message Encryption Removed =====
+// Fixed: Removed insecure shift cipher (CWE-327)
+// WebSocket connections are secured via WSS (TLS encryption) instead
+// Client-side encryption removed as well to match this change
 
 function initializeSocket(httpServer) {
     const io = new Server(httpServer, {
@@ -587,8 +542,7 @@ function initializeSocket(httpServer) {
                     return socket.emit('error', {message: '無效的房間ID: ' + error.message});
                 }
 
-                // Validate message text (encrypted format)
-                // Note: Message is encrypted by client (format: "shift:encrypted_text")
+                // Validate message text
                 let validatedText;
                 try {
                     validatedText = validateMessageText(text);
@@ -614,17 +568,15 @@ function initializeSocket(httpServer) {
                     timestamp: new Date()
                 });
 
-                // Broadcast encrypted message to room
-                // Clients will decrypt on receipt
+                // Broadcast message to room
                 io.to(validatedRoomId).emit('receive-message', {
                     senderId: currentUserId,
                     text: validatedText,
                     timestamp: message.timestamp
                 });
 
-                // Log decrypted message for debugging (optional - comment out in production)
-                const decryptedForLog = decryptMessage(validatedText);
-                console.log(`💬 Message from ${currentUserId} in ${validatedRoomId}: ${decryptedForLog.substring(0, 50)}...`);
+                // Log message for debugging (optional - comment out in production)
+                console.log(`💬 Message from ${currentUserId} in ${validatedRoomId}: ${validatedText.substring(0, 50)}...`);
             } catch (error) {
                 console.error('Error sending message:', error);
                 socket.emit('error', {message: '發送訊息失敗'});

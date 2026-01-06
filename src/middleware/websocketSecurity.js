@@ -402,9 +402,18 @@ function validateOrigin(origin) {
     if (allowed === '*') return true;
     if (allowed === origin) return true;
     // Support wildcard subdomains (e.g., *.example.com)
+    // Fixed: Secure subdomain validation to prevent subdomain takeover attacks (CWE-346)
     if (allowed.startsWith('*.')) {
       const domain = allowed.slice(2);
-      return origin.endsWith(domain);
+      try {
+        // Ensure origin starts with protocol and ends with exact domain
+        const originUrl = new URL(origin);
+        const allowedDomain = '.' + domain;
+        return originUrl.hostname === domain || originUrl.hostname.endsWith(allowedDomain);
+      } catch (e) {
+        // Invalid URL format
+        return false;
+      }
     }
     return false;
   });
