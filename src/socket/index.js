@@ -6,6 +6,20 @@ const {
   validateUserId,
   validateMessageText
 } = require('../middleware/security');
+const securityConfig = require('../config/security');
+const {
+  getClientIP,
+  logSecurityEvent,
+  isIPBlocked,
+  blockIP,
+  trackAnomaly,
+  checkConnectionRateLimit,
+  registerConnection,
+  unregisterConnection,
+  checkMessageRateLimit,
+  validateOrigin,
+  validatePayloadSize
+} = require('../middleware/websocketSecurity');
 
 // ===== Message Encryption Functions =====
 // Simple shift cipher encryption for WebSocket messages
@@ -60,18 +74,127 @@ function decryptMessage(encryptedData) {
 function initializeSocket(httpServer) {
     const io = new Server(httpServer, {
         path: '/socket.io',
-        cors: { origin: process.env.CORS_ORIGIN || '*', methods: ['GET','POST'] },
-        pingTimeout: 30000,  // 30 seconds timeout
-        pingInterval: 10000, // Send ping every 10 seconds
-        connectTimeout: 45000 // Connection timeout: 45 seconds
+        cors: {
+            origin: (origin, callback) => {
+                // Validate origin using security middleware
+                if (validateOrigin(origin)) {
+                    callback(null, true);
+                } else {
+                    logSecurityEvent({
+                        type: 'invalid_origin',
+                        origin,
+                        severity: 3,
+                        details: 'Origin not in allowed list'
+                    });
+                    callback(new Error('Origin not allowed'), false);
+                }
+            },
+            methods: ['GET', 'POST'],
+            credentials: true
+        },
+        pingTimeout: securityConfig.websocket.pingTimeout,
+        pingInterval: securityConfig.websocket.pingInterval,
+        connectTimeout: securityConfig.websocket.connectTimeout,
+        maxHttpBufferSize: securityConfig.validation.maxOfferSize, // Limit message size
+        allowEIO3: false // Disable legacy protocol for security
     });
 
     io.on('connection', (socket) => {
-        console.log(`✅ User connected: ${socket.id}`);
+        const clientIP = getClientIP(socket);
+        console.log(`✅ User connected: ${socket.id} from ${clientIP}`);
+
+        // Security Check 1: IP Blacklist
+        if (isIPBlocked(clientIP)) {
+            logSecurityEvent({
+                type: 'blocked_ip_attempt',
+                ip: clientIP,
+                socketId: socket.id,
+                severity: 4,
+                details: 'Blocked IP attempted connection'
+            });
+            socket.emit('error', { message: '您的IP已被暫時封鎖，請稍後再試' });
+            socket.disconnect(true);
+            return;
+        }
+
+        // Security Check 2: Connection Rate Limit
+        const rateLimitResult = checkConnectionRateLimit(clientIP);
+        if (!rateLimitResult.allowed) {
+            logSecurityEvent({
+                type: 'rate_limit_connection_rejected',
+                ip: clientIP,
+                socketId: socket.id,
+                severity: 3,
+                details: rateLimitResult
+            });
+            socket.emit('error', {
+                message: '連接過於頻繁，請稍後再試',
+                retryAfter: rateLimitResult.retryAfter
+            });
+            socket.disconnect(true);
+            return;
+        }
 
         let currentUserId = null;
         let currentRoomId = null;
         let heartbeatTimer = null;
+
+        // Security wrapper for event handlers
+        function secureEventHandler(eventName, handler) {
+            return async (data) => {
+                resetHeartbeat(); // Reset timeout on activity
+
+                // Check message rate limit
+                const rateLimit = checkMessageRateLimit(socket.id, eventName);
+                if (!rateLimit.allowed) {
+                    logSecurityEvent({
+                        type: 'rate_limit_message_rejected',
+                        ip: clientIP,
+                        socketId: socket.id,
+                        userId: currentUserId,
+                        eventName,
+                        severity: 2,
+                        details: rateLimit
+                    });
+                    return socket.emit('error', {
+                        message: rateLimit.reason,
+                        retryAfter: rateLimit.retryAfter
+                    });
+                }
+
+                // Validate payload size
+                const sizeValidation = validatePayloadSize(data, eventName);
+                if (!sizeValidation.valid) {
+                    logSecurityEvent({
+                        type: 'validation_rejected',
+                        ip: clientIP,
+                        socketId: socket.id,
+                        userId: currentUserId,
+                        eventName,
+                        severity: 2,
+                        details: sizeValidation
+                    });
+                    return socket.emit('error', { message: sizeValidation.reason });
+                }
+
+                // Call the actual handler
+                try {
+                    await handler(data);
+                } catch (error) {
+                    console.error(`Error in ${eventName}:`, error);
+                    logSecurityEvent({
+                        type: 'handler_error',
+                        ip: clientIP,
+                        socketId: socket.id,
+                        userId: currentUserId,
+                        eventName,
+                        severity: 2,
+                        details: { error: error.message }
+                    });
+                    socket.emit('error', { message: '處理請求時發生錯誤' });
+                }
+            };
+        }
 
         // Heartbeat mechanism - reset timer on any activity
         function resetHeartbeat() {
@@ -116,8 +239,7 @@ function initializeSocket(httpServer) {
         resetHeartbeat();
 
         // Join room
-        socket.on('join-room', async (data) => {
-            resetHeartbeat(); // Reset timeout on activity
+        socket.on('join-room', secureEventHandler('join-room', async (data) => {
             try {
                 const {roomId, userId} = data;
 
@@ -175,6 +297,12 @@ function initializeSocket(httpServer) {
                 currentUserId = newUserId;
                 currentRoomId = room.id;
 
+                // Register connection with security middleware
+                const regResult = registerConnection(clientIP, socket.id, newUserId);
+                if (!regResult.allowed) {
+                    return socket.emit('error', { message: regResult.reason });
+                }
+
                 // Join socket room
                 socket.join(validatedRoomId);
 
@@ -200,11 +328,10 @@ function initializeSocket(httpServer) {
                 console.error('Error joining room:', error);
                 socket.emit('error', {message: '加入房間失敗'});
             }
-        });
+        }));
 
         // Create room
-        socket.on('create-room', async (data) => {
-            resetHeartbeat(); // Reset timeout on activity
+        socket.on('create-room', secureEventHandler('create-room', async (data) => {
             try {
                 const {roomId, userId} = data;
 
@@ -251,6 +378,15 @@ function initializeSocket(httpServer) {
                 currentUserId = validatedUserId;
                 currentRoomId = room.id;
 
+                // Register connection with security middleware
+                const regResult = registerConnection(clientIP, socket.id, validatedUserId);
+                if (!regResult.allowed) {
+                    return socket.emit('error', { message: regResult.reason });
+                }
+
+                // Track room creation for anomaly detection
+                trackAnomaly(clientIP, 'room_creation', { roomId: validatedRoomId });
+
                 // Join socket room
                 socket.join(validatedRoomId);
 
@@ -263,11 +399,10 @@ function initializeSocket(httpServer) {
                 console.error('Error creating room:', error);
                 socket.emit('error', {message: '建立房間失敗'});
             }
-        });
+        }));
 
         // WebRTC Signaling: Send Offer
-        socket.on('send-offer', async (data) => {
-            resetHeartbeat(); // Reset timeout on activity
+        socket.on('send-offer', secureEventHandler('send-offer', async (data) => {
             try {
                 const {roomId, toUser, offer} = data;
 
@@ -323,11 +458,10 @@ function initializeSocket(httpServer) {
                 console.error('Error sending offer:', error);
                 socket.emit('error', {message: '發送Offer失敗'});
             }
-        });
+        }));
 
         // WebRTC Signaling: Send Answer
-        socket.on('send-answer', async (data) => {
-            resetHeartbeat(); // Reset timeout on activity
+        socket.on('send-answer', secureEventHandler('send-answer', async (data) => {
             try {
                 const {roomId, toUser, answer} = data;
 
@@ -383,11 +517,10 @@ function initializeSocket(httpServer) {
                 console.error('Error sending answer:', error);
                 socket.emit('error', {message: '發送Answer失敗'});
             }
-        });
+        }));
 
         // WebRTC Signaling: Send ICE Candidate
-        socket.on('send-ice-candidate', async (data) => {
-            resetHeartbeat(); // Reset timeout on activity
+        socket.on('send-ice-candidate', secureEventHandler('send-ice-candidate', async (data) => {
             try {
                 const {roomId, toUser, candidate} = data;
 
@@ -439,11 +572,10 @@ function initializeSocket(httpServer) {
             } catch (error) {
                 console.error('Error sending ICE candidate:', error);
             }
-        });
+        }));
 
         // Send a chat message
-        socket.on('send-message', async (data) => {
-            resetHeartbeat(); // Reset timeout on activity
+        socket.on('send-message', secureEventHandler('send-message', async (data) => {
             try {
                 const {roomId, text} = data;
 
@@ -497,7 +629,7 @@ function initializeSocket(httpServer) {
                 console.error('Error sending message:', error);
                 socket.emit('error', {message: '發送訊息失敗'});
             }
-        });
+        }));
 
         // Handle disconnect
         socket.on('disconnect', async (reason) => {
@@ -508,6 +640,18 @@ function initializeSocket(httpServer) {
                 clearTimeout(heartbeatTimer);
                 heartbeatTimer = null;
             }
+
+            // Clean up security tracking
+            unregisterConnection(clientIP, socket.id, currentUserId);
+
+            logSecurityEvent({
+                type: 'disconnect',
+                ip: clientIP,
+                socketId: socket.id,
+                userId: currentUserId,
+                severity: 1,
+                details: { reason }
+            });
 
             // Update user status in database
             if (currentRoomId && currentUserId) {
