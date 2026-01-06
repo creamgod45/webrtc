@@ -1,5 +1,5 @@
 const {Server} = require('socket.io');
-const {Room, User, Message, IceCandidate, SdpSignal} = require('../models');
+const {sequelize, Room, User, Message, IceCandidate, SdpSignal} = require('../models');
 const {Op} = require('sequelize');
 const {
   validateRoomId,
@@ -234,20 +234,55 @@ function initializeSocket(httpServer) {
                 }
 
                 // Generate user ID if not provided
-                const newUserId = validatedUserId || `user${userCount + 1}`;
+                // Fixed: Prevent race condition in user ID generation using transaction (CWE-362)
+                let newUserId = validatedUserId;
+                let user, created;
 
-                // Create or update user
-                const [user, created] = await User.findOrCreate({
-                    where: {user_id: newUserId, room_id: room.id}, defaults: {
-                        socket_id: socket.id, is_connected: true
+                // Use transaction to ensure atomic user ID generation and creation
+                const result = await sequelize.transaction(async (t) => {
+                    if (!newUserId) {
+                        // Get all existing user IDs in the room to find next available number
+                        const existingUsers = await User.findAll({
+                            where: { room_id: room.id },
+                            attributes: ['user_id'],
+                            transaction: t,
+                            lock: t.LOCK.UPDATE // Lock rows to prevent concurrent access
+                        });
+
+                        const existingUserIds = existingUsers.map(u => u.user_id);
+                        let userNumber = 1;
+
+                        // Find first available user number (handles gaps from disconnects)
+                        while (existingUserIds.includes(`user${userNumber}`)) {
+                            userNumber++;
+                        }
+
+                        newUserId = `user${userNumber}`;
                     }
+
+                    // Create or update user within transaction
+                    const [u, c] = await User.findOrCreate({
+                        where: {user_id: newUserId, room_id: room.id},
+                        defaults: {
+                            socket_id: socket.id,
+                            is_connected: true
+                        },
+                        transaction: t
+                    });
+
+                    if (!c) {
+                        await u.update({
+                            socket_id: socket.id,
+                            is_connected: true,
+                            left_at: null
+                        }, { transaction: t });
+                    }
+
+                    return { user: u, created: c };
                 });
 
-                if (!created) {
-                    await user.update({
-                        socket_id: socket.id, is_connected: true, left_at: null
-                    });
-                }
+                user = result.user;
+                created = result.created;
 
                 currentUserId = newUserId;
                 currentRoomId = room.id;

@@ -63,6 +63,39 @@ app.use(session({
 // Ensure CSRF token exists in session (CSRF protection layer 2)
 app.use(ensureToken);
 // Security middleware with CSP configuration for Material Design and WebSocket
+// Fixed: Restrict WebSocket connections in production to prevent data exfiltration (CWE-346)
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
+  : [];
+
+// Build WebSocket CSP directives based on environment
+const wsConnectSrc = [
+  "'self'",
+  "https://unpkg.com",
+  "https://cdn.socket.io",
+  `ws://localhost:${PORT}`,
+  `wss://localhost:${PORT}`
+];
+
+// In production, only allow specific origins; in development, allow all for testing
+if (process.env.NODE_ENV === 'production' && allowedOrigins.length > 0) {
+  // Add specific WebSocket endpoints from ALLOWED_ORIGINS
+  allowedOrigins.forEach(origin => {
+    try {
+      const url = new URL(origin);
+      wsConnectSrc.push(`ws://${url.hostname}:${PORT}`);
+      wsConnectSrc.push(`wss://${url.hostname}:${PORT}`);
+      wsConnectSrc.push(`wss://${url.hostname}`); // For standard HTTPS port
+    } catch (e) {
+      console.warn(`⚠️  Invalid origin in ALLOWED_ORIGINS: ${origin}`);
+    }
+  });
+} else {
+  // Development: allow all WebSocket connections for testing
+  wsConnectSrc.push("ws:");
+  wsConnectSrc.push("wss:");
+}
+
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
@@ -83,15 +116,7 @@ app.use(helmet({
         "'self'",
         "https://fonts.gstatic.com"
       ],
-      connectSrc: [
-        "'self'",
-        "https://unpkg.com",
-        "https://cdn.socket.io",
-        `ws://localhost:${PORT}`,
-        `wss://localhost:${PORT}`,
-        "ws:",
-        "wss:"
-      ],
+      connectSrc: wsConnectSrc,
       imgSrc: ["'self'", "data:", "https:"],
       mediaSrc: ["'self'", "blob:"]
     }

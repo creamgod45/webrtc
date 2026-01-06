@@ -5,6 +5,7 @@
  */
 
 const express = require('express');
+const crypto = require('crypto');
 const router = express.Router();
 const {
   getSecurityEvents,
@@ -20,19 +21,48 @@ const { getAdminPassword } = require('./admin');
 /**
  * Middleware to verify admin password
  * Required for all security monitoring endpoints
+ * Fixed: Use timing-safe comparison to prevent timing attacks (CWE-208)
  */
 function verifyAdminPassword(req, res, next) {
   const providedPassword = req.headers['x-admin-password'] || req.body.adminPassword;
   const ADMIN_PASSWORD = getAdminPassword();
 
-  if (!providedPassword || providedPassword !== ADMIN_PASSWORD) {
+  // Check if password is provided and lengths match (constant-time check)
+  if (!providedPassword || !ADMIN_PASSWORD) {
     return res.status(403).json({
       error: 'Forbidden',
       message: 'Invalid or missing admin password. Provide via X-Admin-Password header.'
     });
   }
 
-  next();
+  try {
+    // Use timing-safe comparison to prevent timing attacks
+    const providedBuffer = Buffer.from(providedPassword);
+    const adminBuffer = Buffer.from(ADMIN_PASSWORD);
+
+    // timingSafeEqual requires equal length buffers
+    if (providedBuffer.length !== adminBuffer.length) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'Invalid or missing admin password. Provide via X-Admin-Password header.'
+      });
+    }
+
+    // Constant-time comparison
+    if (!crypto.timingSafeEqual(providedBuffer, adminBuffer)) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'Invalid or missing admin password. Provide via X-Admin-Password header.'
+      });
+    }
+
+    next();
+  } catch (error) {
+    return res.status(403).json({
+      error: 'Forbidden',
+      message: 'Invalid or missing admin password. Provide via X-Admin-Password header.'
+    });
+  }
 }
 
 /**
