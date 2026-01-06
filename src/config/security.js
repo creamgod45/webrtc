@@ -61,7 +61,7 @@ module.exports = {
     // String length limits
     maxRoomIdLength: 50,
     maxUserIdLength: 50,
-    maxMessageTextLength: 2100, // Accounts for encryption overhead
+    maxMessageTextLength: 2100, // Text message length limit
 
     // Room limits
     maxRoomsPerUser: 3,

@@ -294,7 +294,21 @@ router.post('/block-ip', verifyAdminPassword, (req, res) => {
       });
     }
 
-    const blockDuration = duration || 3600000; // Default 1 hour
+    // Validate duration (max 24 hours to prevent excessive blocking)
+    const maxDuration = 24 * 60 * 60 * 1000; // 24 hours
+    let blockDuration = 3600000; // Default 1 hour
+
+    if (duration) {
+      const durationNum = parseInt(duration, 10);
+      if (isNaN(durationNum) || durationNum < 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid duration. Must be a positive number in milliseconds.'
+        });
+      }
+      blockDuration = Math.min(durationNum, maxDuration);
+    }
+
     const blockReason = reason || 'Manually blocked by admin';
 
     blockIP(ip, blockReason, blockDuration);

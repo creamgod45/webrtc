@@ -35,9 +35,16 @@ const anomalyTracking = new Map(); // IP -> { connections: [], rooms: [], authFa
 // ===== Helper Functions =====
 
 /**
- * Get client IP address from socket
+ * Get client IP address
+ * Fixed: Prevent IP spoofing through x-forwarded-for header (CWE-346)
  */
 function getClientIP(socket) {
+  // In production, validate proxy headers or use socket.conn.remoteAddress directly
+  // Only trust x-forwarded-for if behind a known reverse proxy
+  if (process.env.NODE_ENV === 'production' && process.env.TRUST_PROXY !== 'true') {
+    return socket.conn.remoteAddress;
+  }
+
   return socket.handshake.headers['x-forwarded-for']?.split(',')[0].trim() ||
          socket.handshake.address ||
          socket.conn.remoteAddress;
