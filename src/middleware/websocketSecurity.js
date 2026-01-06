@@ -423,9 +423,37 @@ function validateOrigin(origin) {
 
 /**
  * Validate message payload size
+ * Fixed: Safe JSON size calculation with circular reference protection (CWE-400)
  */
 function validatePayloadSize(data, eventName) {
-  const jsonSize = JSON.stringify(data).length;
+  let jsonSize;
+  try {
+    // Safe JSON size calculation with circular reference protection
+    const seen = new WeakSet();
+    const replacer = (key, value) => {
+      if (typeof value === 'object' && value !== null) {
+        if (seen.has(value)) {
+          return '[Circular]';
+        }
+        seen.add(value);
+      }
+      return value;
+    };
+    jsonSize = JSON.stringify(data, replacer).length;
+  } catch (error) {
+    // If JSON.stringify fails, treat as oversized payload
+    logSecurityEvent({
+      type: 'validation_json_error',
+      eventName,
+      severity: 3,
+      details: { error: error.message }
+    });
+    return {
+      valid: false,
+      reason: 'Invalid payload format'
+    };
+  }
+
   let maxSize;
 
   switch (eventName) {

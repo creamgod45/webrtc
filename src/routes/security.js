@@ -115,7 +115,24 @@ router.get('/events', verifyAdminPassword, (req, res) => {
     }
 
     // Filter by type if specified
+    // Fixed: Validate type parameter to prevent injection attacks (CWE-20)
     if (type) {
+      // Validate type parameter against known event types
+      const validEventTypes = [
+        'blocked_ip_attempt', 'rate_limit_connection_rejected', 'invalid_origin', 'disconnect',
+        'rate_limit_message_rejected', 'rate_limit_message_burst', 'validation_rejected',
+        'validation_payload_size', 'validation_json_error', 'anomaly_rapid_connections',
+        'anomaly_rapid_room_creation', 'anomaly_large_payload', 'anomaly_auth_failures',
+        'ip_blocked', 'ip_unblocked', 'handler_error'
+      ];
+
+      if (!validEventTypes.includes(type)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid event type. Use /admin/security/event-types to see valid types.'
+        });
+      }
+
       events = events.filter(e => e.type === type);
     }
 
