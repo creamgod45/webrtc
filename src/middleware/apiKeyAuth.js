@@ -1,3 +1,7 @@
+/** @typedef {import('express').Request} Request */
+/** @typedef {import('express').Response} Response */
+/** @typedef {import('express').NextFunction} NextFunction */
+
 const crypto = require('crypto');
 const { ApiKey } = require('../models');
 const { Op } = require('sequelize');
@@ -5,6 +9,10 @@ const { Op } = require('sequelize');
 /**
  * Middleware to verify API key from X-API-KEY header
  * Used for /api/ routes
+ * @param {Request} req - Express request
+ * @param {Response} res - Express response
+ * @param {NextFunction} next - Next middleware function
+ * @returns {Promise<void>}
  */
 async function verifyApiKey(req, res, next) {
   const apiKey = req.headers['x-api-key'];
@@ -64,6 +72,10 @@ async function verifyApiKey(req, res, next) {
 /**
  * Optional API key verification
  * Allows requests to proceed even without a valid key
+ * @param {Request} req - Express request
+ * @param {Response} res - Express response
+ * @param {NextFunction} next - Next middleware function
+ * @returns {Promise<void>}
  */
 async function optionalApiKey(req, res, next) {
   const apiKey = req.headers['x-api-key'];

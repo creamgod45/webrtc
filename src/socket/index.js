@@ -1,3 +1,9 @@
+/** @typedef {import('socket.io').Server} SocketIOServer */
+/** @typedef {import('socket.io').Socket} Socket */
+/** @typedef {import('http').Server} HttpServer */
+/** @typedef {import('../models').Room} RoomModel */
+/** @typedef {import('../models').User} UserModel */
+
 const {Server} = require('socket.io');
 const {Room, User, Message, IceCandidate, SdpSignal} = require('../models');
 const {Op} = require('sequelize');
@@ -8,9 +14,13 @@ const {
 } = require('../middleware/security');
 
 // ===== Message Encryption Functions =====
-// Simple shift cipher encryption for WebSocket messages
-// Format: "shift:encrypted_text"
-// IMPORTANT: Must match client-side implementation
+/**
+ * Simple shift cipher encryption for WebSocket messages
+ * Format: "shift:encrypted_text"
+ * IMPORTANT: Must match client-side implementation
+ * @param {string} text - Plain text message to encrypt
+ * @returns {string} Encrypted message in format "shift:encrypted_text"
+ */
 function encryptMessage(text) {
   if (!text || text.length === 0) return text;
 
@@ -27,6 +37,11 @@ function encryptMessage(text) {
   return `${shift}:${encrypted}`;
 }
 
+/**
+ * Decrypt a shift cipher encrypted message
+ * @param {string} encryptedData - Encrypted message in format "shift:encrypted_text"
+ * @returns {string} Decrypted plain text message
+ */
 function decryptMessage(encryptedData) {
   if (!encryptedData || typeof encryptedData !== 'string') return encryptedData;
 
@@ -57,7 +72,13 @@ function decryptMessage(encryptedData) {
   return decrypted;
 }
 
+/**
+ * Initialize Socket.IO server and set up event handlers
+ * @param {HttpServer} httpServer - HTTP server instance
+ * @returns {SocketIOServer} Configured Socket.IO server instance
+ */
 function initializeSocket(httpServer) {
+    /** @type {SocketIOServer} */
     const io = new Server(httpServer, {
         path: '/socket.io',
         cors: { origin: process.env.CORS_ORIGIN || '*', methods: ['GET','POST'] },
@@ -69,11 +90,18 @@ function initializeSocket(httpServer) {
     io.on('connection', (socket) => {
         console.log(`✅ User connected: ${socket.id}`);
 
+        /** @type {string|null} */
         let currentUserId = null;
+        /** @type {string|null} */
         let currentRoomId = null;
+        /** @type {NodeJS.Timeout|null} */
         let heartbeatTimer = null;
 
-        // Heartbeat mechanism - reset timer on any activity
+        /**
+         * Heartbeat mechanism - reset timer on any activity
+         * Disconnects user after 30 seconds of inactivity
+         * @returns {void}
+         */
         function resetHeartbeat() {
             if (heartbeatTimer) {
                 clearTimeout(heartbeatTimer);
@@ -115,7 +143,11 @@ function initializeSocket(httpServer) {
         // Start heartbeat timer on connection
         resetHeartbeat();
 
-        // Join room
+        /**
+         * Handle join-room event
+         * @param {{roomId: string, userId?: string}} data - Room and user information
+         * @returns {Promise<void>}
+         */
         socket.on('join-room', async (data) => {
             resetHeartbeat(); // Reset timeout on activity
             try {
@@ -202,7 +234,11 @@ function initializeSocket(httpServer) {
             }
         });
 
-        // Create room
+        /**
+         * Handle create-room event
+         * @param {{roomId?: string, userId?: string}} data - Room and user information
+         * @returns {Promise<void>}
+         */
         socket.on('create-room', async (data) => {
             resetHeartbeat(); // Reset timeout on activity
             try {
@@ -265,7 +301,11 @@ function initializeSocket(httpServer) {
             }
         });
 
-        // WebRTC Signaling: Send Offer
+        /**
+         * Handle WebRTC offer signaling
+         * @param {{roomId: string, toUser: string, offer: RTCSessionDescriptionInit}} data - WebRTC offer data
+         * @returns {Promise<void>}
+         */
         socket.on('send-offer', async (data) => {
             resetHeartbeat(); // Reset timeout on activity
             try {
@@ -325,7 +365,11 @@ function initializeSocket(httpServer) {
             }
         });
 
-        // WebRTC Signaling: Send Answer
+        /**
+         * Handle WebRTC answer signaling
+         * @param {{roomId: string, toUser: string, answer: RTCSessionDescriptionInit}} data - WebRTC answer data
+         * @returns {Promise<void>}
+         */
         socket.on('send-answer', async (data) => {
             resetHeartbeat(); // Reset timeout on activity
             try {
@@ -385,7 +429,11 @@ function initializeSocket(httpServer) {
             }
         });
 
-        // WebRTC Signaling: Send ICE Candidate
+        /**
+         * Handle WebRTC ICE candidate signaling
+         * @param {{roomId: string, toUser: string, candidate: RTCIceCandidate}} data - ICE candidate data
+         * @returns {Promise<void>}
+         */
         socket.on('send-ice-candidate', async (data) => {
             resetHeartbeat(); // Reset timeout on activity
             try {
@@ -441,7 +489,11 @@ function initializeSocket(httpServer) {
             }
         });
 
-        // Send a chat message
+        /**
+         * Handle chat message sending
+         * @param {{roomId: string, text: string}} data - Message data (text is encrypted)
+         * @returns {Promise<void>}
+         */
         socket.on('send-message', async (data) => {
             resetHeartbeat(); // Reset timeout on activity
             try {
@@ -499,7 +551,11 @@ function initializeSocket(httpServer) {
             }
         });
 
-        // Handle disconnect
+        /**
+         * Handle user disconnect event
+         * @param {string} reason - Disconnect reason
+         * @returns {Promise<void>}
+         */
         socket.on('disconnect', async (reason) => {
             console.log(`❌ User disconnected: ${socket.id}, reason: ${reason}`);
 

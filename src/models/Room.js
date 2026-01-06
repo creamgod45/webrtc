@@ -1,5 +1,22 @@
+/** @typedef {import('sequelize').Model} Model */
+/** @typedef {import('sequelize').DataTypes} DataTypes */
+
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../database/config');
+
+/**
+ * Room model representing a chat/voice room
+ * @typedef {Object} RoomAttributes
+ * @property {string} id - UUID primary key
+ * @property {string} room_id - User-friendly room ID
+ * @property {string|null} name - Optional room name
+ * @property {string|null} password - Password hash for protected rooms
+ * @property {boolean} is_private - Whether room is private
+ * @property {number} max_users - Maximum users allowed (2-50)
+ * @property {boolean} is_active - Whether room is active
+ * @property {string|null} created_by - User ID of creator
+ * @property {string|null} owner_user_id - Current owner user ID
+ */
 
 const Room = sequelize.define('Room', {
   id: {

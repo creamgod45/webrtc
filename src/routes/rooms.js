@@ -1,3 +1,9 @@
+/** @typedef {import('express').Request} Request */
+/** @typedef {import('express').Response} Response */
+/** @typedef {import('express').Router} Router */
+/** @typedef {import('../models').Room} RoomModel */
+/** @typedef {import('../models').User} UserModel */
+
 const express = require('express');
 const bcrypt = require('bcrypt');
 const { Room, User, Message, BannedUser, RoomModerator } = require('../models');
@@ -12,10 +18,18 @@ const {
   validateDuration
 } = require('../middleware/security');
 
+/** @type {Router} */
 const router = express.Router();
+/** @type {number} */
 const SALT_ROUNDS = 10;
 
-// Get all active rooms
+/**
+ * Get all active rooms
+ * @route GET /api/rooms
+ * @param {Request} req - Express request
+ * @param {Response} res - Express response
+ * @returns {Promise<void>}
+ */
 router.get('/', async (req, res) => {
   try {
     const rooms = await Room.findAll({
@@ -47,7 +61,13 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Get public rooms (for lobby)
+/**
+ * Get public rooms (for lobby)
+ * @route GET /api/rooms/lobby/list
+ * @param {Request} req - Express request
+ * @param {Response} res - Express response
+ * @returns {Promise<void>}
+ */
 router.get('/lobby/list', async (req, res) => {
   try {
     const rooms = await Room.findAll({
@@ -80,7 +100,13 @@ router.get('/lobby/list', async (req, res) => {
   }
 });
 
-// Get room by ID
+/**
+ * Get room by ID
+ * @route GET /api/rooms/:roomId
+ * @param {Request} req - Express request
+ * @param {Response} res - Express response
+ * @returns {Promise<void>}
+ */
 router.get('/:roomId', async (req, res) => {
   try {
     const { roomId } = req.params;
@@ -115,7 +141,13 @@ router.get('/:roomId', async (req, res) => {
   }
 });
 
-// Get room messages
+/**
+ * Get room messages with pagination
+ * @route GET /api/rooms/:roomId/messages
+ * @param {Request} req - Express request
+ * @param {Response} res - Express response
+ * @returns {Promise<void>}
+ */
 router.get('/:roomId/messages', async (req, res) => {
   try {
     const { roomId } = req.params;
@@ -150,7 +182,13 @@ router.get('/:roomId/messages', async (req, res) => {
   }
 });
 
-// Create a new room (REST endpoint - can also use WebSocket)
+/**
+ * Create a new room (REST endpoint - can also use WebSocket)
+ * @route POST /api/rooms
+ * @param {Request} req - Express request
+ * @param {Response} res - Express response
+ * @returns {Promise<void>}
+ */
 router.post('/', async (req, res) => {
   try {
     const { roomId, name, maxUsers, password, isPrivate, createdBy } = req.body;
@@ -201,7 +239,13 @@ router.post('/', async (req, res) => {
   }
 });
 
-// Delete/deactivate a room
+/**
+ * Delete/deactivate a room
+ * @route DELETE /api/rooms/:roomId
+ * @param {Request} req - Express request
+ * @param {Response} res - Express response
+ * @returns {Promise<void>}
+ */
 router.delete('/:roomId', async (req, res) => {
   try {
     const { roomId } = req.params;
@@ -232,7 +276,13 @@ router.delete('/:roomId', async (req, res) => {
   }
 });
 
-// Update room settings
+/**
+ * Update room settings
+ * @route PUT /api/rooms/:roomId/settings
+ * @param {Request} req - Express request
+ * @param {Response} res - Express response
+ * @returns {Promise<void>}
+ */
 router.put('/:roomId/settings', async (req, res) => {
   try {
     const { roomId } = req.params;
@@ -293,7 +343,13 @@ router.put('/:roomId/settings', async (req, res) => {
   }
 });
 
-// Verify room password
+/**
+ * Verify room password
+ * @route POST /api/rooms/:roomId/verify-password
+ * @param {Request} req - Express request
+ * @param {Response} res - Express response
+ * @returns {Promise<void>}
+ */
 router.post('/:roomId/verify-password', async (req, res) => {
   try {
     const { roomId } = req.params;
@@ -322,7 +378,13 @@ router.post('/:roomId/verify-password', async (req, res) => {
   }
 });
 
-// Kick user from room
+/**
+ * Kick user from room
+ * @route POST /api/rooms/:roomId/kick
+ * @param {Request} req - Express request
+ * @param {Response} res - Express response
+ * @returns {Promise<void>}
+ */
 router.post('/:roomId/kick', async (req, res) => {
   try {
     const { roomId } = req.params;
@@ -382,7 +444,13 @@ router.post('/:roomId/kick', async (req, res) => {
   }
 });
 
-// Ban user from room
+/**
+ * Ban user from room
+ * @route POST /api/rooms/:roomId/ban
+ * @param {Request} req - Express request
+ * @param {Response} res - Express response
+ * @returns {Promise<void>}
+ */
 router.post('/:roomId/ban', async (req, res) => {
   try {
     const { roomId } = req.params;
@@ -463,7 +531,13 @@ router.post('/:roomId/ban', async (req, res) => {
   }
 });
 
-// Unban user
+/**
+ * Unban user
+ * @route DELETE /api/rooms/:roomId/ban/:targetUserId
+ * @param {Request} req - Express request
+ * @param {Response} res - Express response
+ * @returns {Promise<void>}
+ */
 router.delete('/:roomId/ban/:targetUserId', async (req, res) => {
   try {
     const { roomId, targetUserId } = req.params;
@@ -500,7 +574,13 @@ router.delete('/:roomId/ban/:targetUserId', async (req, res) => {
   }
 });
 
-// Get banned users list
+/**
+ * Get banned users list
+ * @route GET /api/rooms/:roomId/bans
+ * @param {Request} req - Express request
+ * @param {Response} res - Express response
+ * @returns {Promise<void>}
+ */
 router.get('/:roomId/bans', async (req, res) => {
   try {
     const { roomId } = req.params;
@@ -537,7 +617,13 @@ router.get('/:roomId/bans', async (req, res) => {
   }
 });
 
-// Add moderator
+/**
+ * Add moderator to room
+ * @route POST /api/rooms/:roomId/moderator
+ * @param {Request} req - Express request
+ * @param {Response} res - Express response
+ * @returns {Promise<void>}
+ */
 router.post('/:roomId/moderator', async (req, res) => {
   try {
     const { roomId } = req.params;
@@ -578,7 +664,13 @@ router.post('/:roomId/moderator', async (req, res) => {
   }
 });
 
-// Remove moderator
+/**
+ * Remove moderator from room
+ * @route DELETE /api/rooms/:roomId/moderator/:targetUserId
+ * @param {Request} req - Express request
+ * @param {Response} res - Express response
+ * @returns {Promise<void>}
+ */
 router.delete('/:roomId/moderator/:targetUserId', async (req, res) => {
   try {
     const { roomId, targetUserId } = req.params;

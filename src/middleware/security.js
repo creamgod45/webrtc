@@ -1,3 +1,7 @@
+/** @typedef {import('express').Request} Request */
+/** @typedef {import('express').Response} Response */
+/** @typedef {import('express').NextFunction} NextFunction */
+
 /**
  * Security Middleware and Utilities
  *
@@ -7,6 +11,8 @@
 /**
  * Sanitize user input to prevent XSS attacks
  * Removes potentially dangerous characters and tags
+ * @param {any} input - Input to sanitize
+ * @returns {any} Sanitized input
  */
 function sanitizeInput(input) {
   if (typeof input !== 'string') {
@@ -34,6 +40,9 @@ function sanitizeInput(input) {
 /**
  * Validate and sanitize room ID
  * Only allows alphanumeric, dashes, and underscores
+ * @param {string} roomId - Room ID to validate
+ * @returns {string} Validated room ID
+ * @throws {Error} If room ID is invalid
  */
 function validateRoomId(roomId) {
   if (typeof roomId !== 'string') {
@@ -54,6 +63,9 @@ function validateRoomId(roomId) {
 
 /**
  * Validate and sanitize user ID
+ * @param {string} userId - User ID to validate
+ * @returns {string} Validated user ID
+ * @throws {Error} If user ID is invalid
  */
 function validateUserId(userId) {
   if (typeof userId !== 'string') {
@@ -74,6 +86,9 @@ function validateUserId(userId) {
 
 /**
  * Validate room name
+ * @param {string|null|undefined} name - Room name to validate
+ * @returns {string|null} Validated and sanitized room name
+ * @throws {Error} If room name is invalid
  */
 function validateRoomName(name) {
   if (name === null || name === undefined || name === '') {
@@ -93,6 +108,9 @@ function validateRoomName(name) {
 
 /**
  * Validate password
+ * @param {string|null|undefined} password - Password to validate
+ * @returns {string|null} Validated password
+ * @throws {Error} If password is invalid
  */
 function validatePassword(password) {
   if (password === null || password === undefined || password === '') {
@@ -112,6 +130,9 @@ function validatePassword(password) {
 
 /**
  * Validate max users
+ * @param {number|string} maxUsers - Maximum number of users
+ * @returns {number} Validated max users value
+ * @throws {Error} If max users is invalid
  */
 function validateMaxUsers(maxUsers) {
   const parsed = parseInt(maxUsers);
@@ -125,6 +146,9 @@ function validateMaxUsers(maxUsers) {
 
 /**
  * Validate message text
+ * @param {string} text - Message text to validate (may be encrypted)
+ * @returns {string} Validated message text
+ * @throws {Error} If message text is invalid
  */
 function validateMessageText(text) {
   if (typeof text !== 'string') {
@@ -145,6 +169,9 @@ function validateMessageText(text) {
 
 /**
  * Validate ban/kick reason
+ * @param {string|null|undefined} reason - Reason text
+ * @returns {string|null} Validated and sanitized reason
+ * @throws {Error} If reason is invalid
  */
 function validateReason(reason) {
   if (reason === null || reason === undefined || reason === '') {
@@ -164,6 +191,9 @@ function validateReason(reason) {
 
 /**
  * Validate duration (in hours)
+ * @param {number|string|null|undefined} duration - Duration in hours
+ * @returns {number|null} Validated duration
+ * @throws {Error} If duration is invalid
  */
 function validateDuration(duration) {
   if (duration === null || duration === undefined) {
@@ -181,6 +211,10 @@ function validateDuration(duration) {
 
 /**
  * Middleware to sanitize request body
+ * @param {Request} req - Express request
+ * @param {Response} res - Express response
+ * @param {NextFunction} next - Next middleware function
+ * @returns {void}
  */
 function sanitizeRequestBody(req, res, next) {
   if (req.body && typeof req.body === 'object') {
@@ -196,9 +230,18 @@ function sanitizeRequestBody(req, res, next) {
 
 /**
  * Rate limiting helper - track requests per IP
+ * @typedef {{count: number, resetTime: number}} RateLimitRecord
+ * @type {Map<string, RateLimitRecord>}
  */
 const requestCounts = new Map();
 
+/**
+ * Check if request is within rate limit
+ * @param {string} identifier - Unique identifier (usually IP address)
+ * @param {number} maxRequests - Maximum number of requests allowed
+ * @param {number} windowMs - Time window in milliseconds
+ * @returns {boolean} True if within rate limit, false otherwise
+ */
 function rateLimitCheck(identifier, maxRequests = 100, windowMs = 60000) {
   const now = Date.now();
   const record = requestCounts.get(identifier);
