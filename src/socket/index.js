@@ -1,5 +1,11 @@
+/** @typedef {import('socket.io').Server} SocketIOServer */
+/** @typedef {import('socket.io').Socket} Socket */
+/** @typedef {import('http').Server} HttpServer */
+/** @typedef {import('../models').Room} RoomModel */
+/** @typedef {import('../models').User} UserModel */
+
 const {Server} = require('socket.io');
-const {sequelize, Room, User, Message, IceCandidate, SdpSignal} = require('../models');
+const {Room, User, Message, IceCandidate, SdpSignal} = require('../models');
 const {Op} = require('sequelize');
 const {
   validateRoomId,
@@ -8,25 +14,85 @@ const {
 } = require('../middleware/security');
 const securityConfig = require('../config/security');
 const {
-  getClientIP,
-  logSecurityEvent,
-  isIPBlocked,
-  blockIP,
-  trackAnomaly,
-  checkConnectionRateLimit,
-  registerConnection,
-  unregisterConnection,
-  checkMessageRateLimit,
-  validateOrigin,
-  validatePayloadSize
+    getClientIP,
+    logSecurityEvent,
+    isIPBlocked,
+    blockIP,
+    trackAnomaly,
+    checkConnectionRateLimit,
+    registerConnection,
+    unregisterConnection,
+    checkMessageRateLimit,
+    validateOrigin,
+    validatePayloadSize
 } = require('../middleware/websocketSecurity');
 
-// ===== Message Encryption Removed =====
-// Fixed: Removed insecure shift cipher (CWE-327)
-// WebSocket connections are secured via WSS (TLS encryption) instead
-// Client-side encryption removed as well to match this change
+// ===== Message Encryption Functions =====
+/**
+ * Simple shift cipher encryption for WebSocket messages
+ * Format: "shift:encrypted_text"
+ * IMPORTANT: Must match client-side implementation
+ * @param {string} text - Plain text message to encrypt
+ * @returns {string} Encrypted message in format "shift:encrypted_text"
+ */
+function encryptMessage(text) {
+  if (!text || text.length === 0) return text;
 
+  // Random shift between 1-9 (single digit for simplicity)
+  const shift = Math.floor(Math.random() * 9) + 1;
+
+  // Apply shift cipher to each character
+  const encrypted = text.split('').map(char => {
+    const code = char.charCodeAt(0);
+    return String.fromCharCode(code + shift);
+  }).join('');
+
+  // Return format: "shift:encrypted_text"
+  return `${shift}:${encrypted}`;
+}
+
+/**
+ * Decrypt a shift cipher encrypted message
+ * @param {string} encryptedData - Encrypted message in format "shift:encrypted_text"
+ * @returns {string} Decrypted plain text message
+ */
+function decryptMessage(encryptedData) {
+  if (!encryptedData || typeof encryptedData !== 'string') return encryptedData;
+
+  // Check if message is encrypted (contains shift prefix)
+  if (!encryptedData.includes(':')) {
+    return encryptedData; // Not encrypted, return as-is
+  }
+
+  const parts = encryptedData.split(':', 2);
+  if (parts.length !== 2) {
+    return encryptedData; // Invalid format
+  }
+
+  const shift = parseInt(parts[0]);
+  const encrypted = parts[1];
+
+  // Validate shift value
+  if (isNaN(shift) || shift < 1 || shift > 9) {
+    return encryptedData; // Invalid shift
+  }
+
+  // Decrypt by reversing the shift
+  const decrypted = encrypted.split('').map(char => {
+    const code = char.charCodeAt(0);
+    return String.fromCharCode(code - shift);
+  }).join('');
+
+  return decrypted;
+}
+
+/**
+ * Initialize Socket.IO server and set up event handlers
+ * @param {HttpServer} httpServer - HTTP server instance
+ * @returns {SocketIOServer} Configured Socket.IO server instance
+ */
 function initializeSocket(httpServer) {
+    /** @type {SocketIOServer} */
     const io = new Server(httpServer, {
         path: '/socket.io',
         cors: {
@@ -90,10 +156,18 @@ function initializeSocket(httpServer) {
             return;
         }
 
+        /** @type {string|null} */
         let currentUserId = null;
+        /** @type {string|null} */
         let currentRoomId = null;
+        /** @type {NodeJS.Timeout|null} */
         let heartbeatTimer = null;
 
+        /**
+         * Heartbeat mechanism - reset timer on any activity
+         * Disconnects user after 30 seconds of inactivity
+         * @returns {void}
+         */
         // Security wrapper for event handlers
         function secureEventHandler(eventName, handler) {
             return async (data) => {
@@ -193,7 +267,11 @@ function initializeSocket(httpServer) {
         // Start heartbeat timer on connection
         resetHeartbeat();
 
-        // Join room
+        /**
+         * Handle join-room event
+         * @param {{roomId: string, userId?: string}} data - Room and user information
+         * @returns {Promise<void>}
+         */
         socket.on('join-room', secureEventHandler('join-room', async (data) => {
             try {
                 const {roomId, userId} = data;
@@ -320,7 +398,11 @@ function initializeSocket(httpServer) {
             }
         }));
 
-        // Create room
+        /**
+         * Handle create-room event
+         * @param {{roomId?: string, userId?: string}} data - Room and user information
+         * @returns {Promise<void>}
+         */
         socket.on('create-room', secureEventHandler('create-room', async (data) => {
             try {
                 const {roomId, userId} = data;
@@ -391,7 +473,11 @@ function initializeSocket(httpServer) {
             }
         }));
 
-        // WebRTC Signaling: Send Offer
+        /**
+         * Handle WebRTC offer signaling
+         * @param {{roomId: string, toUser: string, offer: RTCSessionDescriptionInit}} data - WebRTC offer data
+         * @returns {Promise<void>}
+         */
         socket.on('send-offer', secureEventHandler('send-offer', async (data) => {
             try {
                 const {roomId, toUser, offer} = data;
@@ -450,7 +536,11 @@ function initializeSocket(httpServer) {
             }
         }));
 
-        // WebRTC Signaling: Send Answer
+        /**
+         * Handle WebRTC answer signaling
+         * @param {{roomId: string, toUser: string, answer: RTCSessionDescriptionInit}} data - WebRTC answer data
+         * @returns {Promise<void>}
+         */
         socket.on('send-answer', secureEventHandler('send-answer', async (data) => {
             try {
                 const {roomId, toUser, answer} = data;
@@ -509,7 +599,11 @@ function initializeSocket(httpServer) {
             }
         }));
 
-        // WebRTC Signaling: Send ICE Candidate
+        /**
+         * Handle WebRTC ICE candidate signaling
+         * @param {{roomId: string, toUser: string, candidate: RTCIceCandidate}} data - ICE candidate data
+         * @returns {Promise<void>}
+         */
         socket.on('send-ice-candidate', secureEventHandler('send-ice-candidate', async (data) => {
             try {
                 const {roomId, toUser, candidate} = data;
@@ -564,7 +658,11 @@ function initializeSocket(httpServer) {
             }
         }));
 
-        // Send a chat message
+        /**
+         * Handle chat message sending
+         * @param {{roomId: string, text: string}} data - Message data (text is encrypted)
+         * @returns {Promise<void>}
+         */
         socket.on('send-message', secureEventHandler('send-message', async (data) => {
             try {
                 const {roomId, text} = data;
@@ -618,7 +716,11 @@ function initializeSocket(httpServer) {
             }
         }));
 
-        // Handle disconnect
+        /**
+         * Handle user disconnect event
+         * @param {string} reason - Disconnect reason
+         * @returns {Promise<void>}
+         */
         socket.on('disconnect', async (reason) => {
             console.log(`❌ User disconnected: ${socket.id}, reason: ${reason}`);
 

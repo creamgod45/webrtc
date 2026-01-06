@@ -1,5 +1,20 @@
+/** @typedef {import('sequelize').Model} Model */
+/** @typedef {import('sequelize').DataTypes} DataTypes */
+
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../database/config');
+
+/**
+ * User model representing a user in a room
+ * @typedef {Object} UserAttributes
+ * @property {string} id - UUID primary key
+ * @property {string} user_id - User identifier (e.g., "user1", "user2")
+ * @property {string} room_id - UUID foreign key to rooms table
+ * @property {string|null} socket_id - Current WebSocket connection ID
+ * @property {boolean} is_connected - Whether user is currently connected
+ * @property {Date} joined_at - When user joined the room
+ * @property {Date|null} left_at - When user left the room
+ */
 
 const User = sequelize.define('User', {
   id: {

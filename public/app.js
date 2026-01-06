@@ -1,4 +1,17 @@
-// Initialize Socket.IO connection with reconnection settings
+/**
+ * @file WebRTC Voice Chat Application - Client-side JavaScript
+ * @description Manages WebRTC peer connections, Socket.IO communication, and UI interactions
+ */
+
+/** @typedef {import('socket.io-client').Socket} Socket */
+/** @typedef {RTCPeerConnection} RTCPeerConnection */
+/** @typedef {RTCSessionDescriptionInit} RTCSessionDescriptionInit */
+/** @typedef {RTCIceCandidate} RTCIceCandidate */
+
+/**
+ * Initialize Socket.IO connection with reconnection settings
+ * @type {Socket}
+ */
 const socket = io({
   reconnection: true,           // Enable reconnection
   reconnectionAttempts: 5,      // Max reconnection attempts
@@ -8,7 +21,10 @@ const socket = io({
   transports: ['websocket', 'polling'] // Try WebSocket first, fallback to polling
 });
 
-// WebRTC Configuration
+/**
+ * WebRTC Configuration
+ * @type {RTCConfiguration}
+ */
 const configuration = {
   iceServers: [
     {
@@ -22,30 +38,52 @@ const configuration = {
 };
 
 // Global variables
+/** @type {HTMLElement|null} */
 let roomDialog = null;
+/** @type {string|null} Current room ID */
 let roomId = null;
+/** @type {string|null} Current user ID */
 let userId = null;
+/** @type {boolean} Microphone mute state */
 let muteState = false;
-let peerConnections = {}; // Map of peerId -> RTCPeerConnection
-let users = {}; // Map of peerId -> connection status
+/** @type {Object.<string, RTCPeerConnection>} Map of peerId -> RTCPeerConnection */
+let peerConnections = {};
+/** @type {Object.<string, boolean>} Map of peerId -> connection status */
+let users = {};
+/** @type {number} Number of displayed audio streams (1-3) */
 let numberOfDisplayedStreams = 1;
+/** @type {number} Number of connected peers */
 let numberOfConnectedPeers = 0;
-let sessionId = null; // Session ID for user identification
-let csrfToken = null; // CSRF token for request protection (Phase 3)
-let peerRetryCount = {}; // Map of peerId -> retry count (max 3 attempts)
+/** @type {string|null} Session ID for user identification */
+let sessionId = null;
+/** @type {string|null} CSRF token for request protection (Phase 3) */
+let csrfToken = null;
+/** @type {Object.<string, number>} Map of peerId -> retry count (max 3 attempts) */
+let peerRetryCount = {};
 
 // Audio Settings Variables
+/** @type {HTMLElement|null} */
 let audioSettingsDialog = null;
-let currentAudioMode = 'native'; // 'native', 'webaudio', 'advanced', 'ai'
+/** @type {'native'|'webaudio'|'advanced'|'ai'} Current audio processing mode */
+let currentAudioMode = 'native';
+/** @type {AudioContext|null} */
 let audioContext = null;
+/** @type {MediaStreamAudioSourceNode|null} */
 let audioSource = null;
+/** @type {GainNode|null} */
 let audioGainNode = null;
+/** @type {DynamicsCompressorNode|null} */
 let audioCompressor = null;
+/** @type {BiquadFilterNode|null} */
 let audioFilter = null;
+/** @type {HTMLCanvasElement|null} */
 let audioVisualizer = null;
+/** @type {AnalyserNode|null} */
 let audioAnalyser = null;
+/** @type {number|null} Visualizer animation frame ID */
 let visualizerAnimationId = null;
-let audioWorkletNode = null; // For AI mode (RNNoise)
+/** @type {AudioWorkletNode|null} For AI mode (RNNoise) */
+let audioWorkletNode = null;
 
 // Socket event handlers
 socket.on('connect', () => {
@@ -227,6 +265,12 @@ socket.on('banned', (data) => {
 });
 
 // WebRTC Functions
+/**
+ * Create a new peer connection with another user
+ * @param {string} peerId - ID of the peer to connect to
+ * @param {boolean} isInitiator - Whether this peer initiates the connection
+ * @returns {Promise<void>}
+ */
 async function createPeerConnection(peerId, isInitiator) {
   console.log(`Creating peer connection with ${peerId}, initiator: ${isInitiator}`);
 
@@ -346,6 +390,12 @@ async function createPeerConnection(peerId, isInitiator) {
   }
 }
 
+/**
+ * Handle incoming remote audio track from peer
+ * @param {string} peerId - ID of the peer
+ * @param {MediaStream} stream - Remote media stream
+ * @returns {void}
+ */
 function handleRemoteTrack(peerId, stream) {
   // Check if video element already exists
   let videoElement = document.getElementById(peerId);
@@ -384,6 +434,11 @@ function handleRemoteTrack(peerId, stream) {
   videoElement.srcObject = stream;
 }
 
+/**
+ * Handle peer disconnection and cleanup
+ * @param {string} peerId - ID of the disconnected peer
+ * @returns {void}
+ */
 function handlePeerDisconnect(peerId) {
   // Close peer connection
   if (peerConnections[peerId]) {
@@ -416,6 +471,12 @@ function handlePeerDisconnect(peerId) {
   updateUserCount();
 }
 
+/**
+ * Register event listeners for peer connection state changes
+ * @param {RTCPeerConnection} pc - Peer connection instance
+ * @param {string} peerId - ID of the peer
+ * @returns {void}
+ */
 function registerPeerConnectionListeners(pc, peerId) {
   pc.addEventListener('icegatheringstatechange', () => {
     console.log(`ICE gathering state (${peerId}): ${pc.iceGatheringState}`);
@@ -672,6 +733,10 @@ async function joinRoomById(rid) {
   backgroundRun();
 }
 
+/**
+ * Open user's microphone and create local media stream
+ * @returns {Promise<void>}
+ */
 async function openUserMedia() {
   try {
     // Use the selected audio mode from settings (default: 'native')
@@ -695,6 +760,10 @@ async function openUserMedia() {
   }
 }
 
+/**
+ * Disconnect from room and cleanup all peer connections
+ * @returns {Promise<void>}
+ */
 async function hangUp() {
   // Stop all tracks
   const localStream = document.querySelector('#localVideo').srcObject;
@@ -730,6 +799,11 @@ async function hangUp() {
 
 // Chat Functions
 // HTML 編碼函數 - 防止 XSS
+/**
+ * HTML encode a string to prevent XSS
+ * @param {string} str - String to encode
+ * @returns {string} Encoded string
+ */
 function htmlencode(str) {
   const map = {
     '&': '&amp;',
@@ -743,6 +817,11 @@ function htmlencode(str) {
 }
 
 // HTML 解碼函數
+/**
+ * HTML decode a string
+ * @param {string} str - String to decode
+ * @returns {string} Decoded string
+ */
 function htmldecode(str) {
   const textarea = document.createElement('textarea');
   textarea.innerHTML = str;
@@ -750,6 +829,10 @@ function htmldecode(str) {
 }
 
 // 發送消息函數 - 帶完整驗證
+/**
+ * Send a chat message to the room
+ * @returns {void}
+ */
 function sendMessage() {
   const messageInput = document.querySelector('#newMessage');
   const messageText = messageInput.value.trim();
@@ -813,6 +896,13 @@ socket.on('receive-message', (data) => {
 });
 
 // 顯示消息到聊天界面
+/**
+ * Display a chat message in the UI
+ * @param {string} senderId - ID of the message sender
+ * @param {string} text - Message text (encrypted)
+ * @param {Date|string} timestamp - Message timestamp
+ * @returns {void}
+ */
 function displayMessage(senderId, text, timestamp) {
   const messageList = document.querySelector('#messages');
   if (!messageList) return;
@@ -854,6 +944,12 @@ function displayMessage(senderId, text, timestamp) {
 }
 
 // 顯示系統訊息（連線狀態等）
+/**
+ * Display a system message in the UI
+ * @param {string} text - Message text
+ * @param {'info'|'error'|'success'} type - Message type
+ * @returns {void}
+ */
 function displaySystemMessage(text, type = 'info') {
   const messageList = document.querySelector('#messages');
   if (!messageList) return;

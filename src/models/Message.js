@@ -1,5 +1,18 @@
+/** @typedef {import('sequelize').Model} Model */
+/** @typedef {import('sequelize').DataTypes} DataTypes */
+
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../database/config');
+
+/**
+ * Message model representing a chat message
+ * @typedef {Object} MessageAttributes
+ * @property {string} id - UUID primary key
+ * @property {string} room_id - UUID foreign key to rooms table
+ * @property {string} sender_id - User ID who sent the message
+ * @property {string} text - Message text (may be encrypted)
+ * @property {Date} timestamp - When message was sent
+ */
 
 const Message = sequelize.define('Message', {
   id: {
