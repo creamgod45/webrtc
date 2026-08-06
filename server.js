@@ -20,6 +20,7 @@ const { testConnection } = require('./src/database/config');
 const initializeSocket = require('./src/socket');
 const roomRoutes = require('./src/routes/rooms');
 const { router: adminRoutes, setAdminPassword } = require('./src/routes/admin');
+const securityRoutes = require('./src/routes/security');
 const { verifyApiKey } = require('./src/middleware/apiKeyAuth');
 const { ensureToken, verifyToken, optionalVerifyToken } = require('./src/middleware/csrfProtection');
 const { verifyHybridAuth, optionalHybridAuth } = require('./src/middleware/hybridAuth');
@@ -74,6 +75,39 @@ app.use(session({
 // Ensure CSRF token exists in session (CSRF protection layer 2)
 app.use(ensureToken);
 // Security middleware with CSP configuration for Material Design and WebSocket
+// Fixed: Restrict WebSocket connections in production to prevent data exfiltration (CWE-346)
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
+  : [];
+
+// Build WebSocket CSP directives based on environment
+const wsConnectSrc = [
+  "'self'",
+  "https://unpkg.com",
+  "https://cdn.socket.io",
+  `ws://localhost:${PORT}`,
+  `wss://localhost:${PORT}`
+];
+
+// In production, only allow specific origins; in development, allow all for testing
+if (process.env.NODE_ENV === 'production' && allowedOrigins.length > 0) {
+  // Add specific WebSocket endpoints from ALLOWED_ORIGINS
+  allowedOrigins.forEach(origin => {
+    try {
+      const url = new URL(origin);
+      wsConnectSrc.push(`ws://${url.hostname}:${PORT}`);
+      wsConnectSrc.push(`wss://${url.hostname}:${PORT}`);
+      wsConnectSrc.push(`wss://${url.hostname}`); // For standard HTTPS port
+    } catch (e) {
+      console.warn(`⚠️  Invalid origin in ALLOWED_ORIGINS: ${origin}`);
+    }
+  });
+} else {
+  // Development: allow all WebSocket connections for testing
+  wsConnectSrc.push("ws:");
+  wsConnectSrc.push("wss:");
+}
+
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
@@ -94,15 +128,7 @@ app.use(helmet({
         "'self'",
         "https://fonts.gstatic.com"
       ],
-      connectSrc: [
-        "'self'",
-        "https://unpkg.com",
-        "https://cdn.socket.io",
-        `ws://localhost:${PORT}`,
-        `wss://localhost:${PORT}`,
-        "ws:",
-        "wss:"
-      ],
+      connectSrc: wsConnectSrc,
       imgSrc: ["'self'", "data:", "https:"],
       mediaSrc: ["'self'", "blob:"]
     }
@@ -167,6 +193,9 @@ app.get('/api/csrf-token', (req, res) => {
 // Admin routes (require admin password via X-Admin-Password header + CSRF token)
 app.use('/admin', adminRoutes);
 
+// Security monitoring routes (admin only)
+app.use('/admin/security', securityRoutes);
+
 // Room management routes
 // Authentication Strategy:
 // - Frontend web UI: Uses X-CSRF-Token (from /api/csrf-token)
@@ -198,12 +227,41 @@ async function startServer() {
     // Test database connection
     await testConnection();
 
+    // Security warnings
+    if (process.env.NODE_ENV === 'production') {
+      console.log('\n' + '='.repeat(80));
+      console.log('⚠️  PRODUCTION SECURITY CHECKLIST:');
+      console.log('   1. Ensure HTTPS is enabled (WSS requires HTTPS)');
+      console.log('   2. Set ALLOWED_ORIGINS to your actual domain(s)');
+      console.log('   3. Configure SESSION_SECRET with a strong random string');
+      console.log('   4. WebRTC requires HTTPS in production (use reverse proxy)');
+      console.log('   5. Consider adding TURN servers for NAT traversal');
+      console.log('='.repeat(80) + '\n');
+
+      if (!process.env.ALLOWED_ORIGINS || process.env.ALLOWED_ORIGINS === '*') {
+        console.error('❌ ERROR: ALLOWED_ORIGINS not configured for production!');
+        console.error('   Set ALLOWED_ORIGINS in .env to your domain(s)');
+        process.exit(1);
+      }
+
+      if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32) {
+        console.error('❌ ERROR: SESSION_SECRET not properly configured!');
+        console.error('   Set a strong SESSION_SECRET (at least 32 characters)');
+        process.exit(1);
+      }
+    }
+
     // Start HTTP server
     server.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);
       console.log(`📡 Environment: ${process.env.NODE_ENV || 'development'}`);
       console.log(`🌐 Local: http://localhost:${PORT}`);
       console.log(`🔌 WebSocket: ws://localhost:${PORT}`);
+
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('\n💡 Development mode: Security restrictions are relaxed');
+        console.log('   For production deployment, see SECURITY.md\n');
+      }
     });
   } catch (error) {
     console.error('Failed to start server:', error);

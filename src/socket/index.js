@@ -12,6 +12,20 @@ const {
   validateUserId,
   validateMessageText
 } = require('../middleware/security');
+const securityConfig = require('../config/security');
+const {
+    getClientIP,
+    logSecurityEvent,
+    isIPBlocked,
+    blockIP,
+    trackAnomaly,
+    checkConnectionRateLimit,
+    registerConnection,
+    unregisterConnection,
+    checkMessageRateLimit,
+    validateOrigin,
+    validatePayloadSize
+} = require('../middleware/websocketSecurity');
 
 // ===== Message Encryption Functions =====
 /**
@@ -81,14 +95,66 @@ function initializeSocket(httpServer) {
     /** @type {SocketIOServer} */
     const io = new Server(httpServer, {
         path: '/socket.io',
-        cors: { origin: process.env.CORS_ORIGIN || '*', methods: ['GET','POST'] },
-        pingTimeout: 30000,  // 30 seconds timeout
-        pingInterval: 10000, // Send ping every 10 seconds
-        connectTimeout: 45000 // Connection timeout: 45 seconds
+        cors: {
+            origin: (origin, callback) => {
+                // Validate origin using security middleware
+                if (validateOrigin(origin)) {
+                    callback(null, true);
+                } else {
+                    logSecurityEvent({
+                        type: 'invalid_origin',
+                        origin,
+                        severity: 3,
+                        details: 'Origin not in allowed list'
+                    });
+                    callback(new Error('Origin not allowed'), false);
+                }
+            },
+            methods: ['GET', 'POST'],
+            credentials: true
+        },
+        pingTimeout: securityConfig.websocket.pingTimeout,
+        pingInterval: securityConfig.websocket.pingInterval,
+        connectTimeout: securityConfig.websocket.connectTimeout,
+        maxHttpBufferSize: securityConfig.validation.maxOfferSize, // Limit message size
+        allowEIO3: false // Disable legacy protocol for security
     });
 
     io.on('connection', (socket) => {
-        console.log(`✅ User connected: ${socket.id}`);
+        const clientIP = getClientIP(socket);
+        console.log(`✅ User connected: ${socket.id} from ${clientIP}`);
+
+        // Security Check 1: IP Blacklist
+        if (isIPBlocked(clientIP)) {
+            logSecurityEvent({
+                type: 'blocked_ip_attempt',
+                ip: clientIP,
+                socketId: socket.id,
+                severity: 4,
+                details: 'Blocked IP attempted connection'
+            });
+            socket.emit('error', { message: '您的IP已被暫時封鎖，請稍後再試' });
+            socket.disconnect(true);
+            return;
+        }
+
+        // Security Check 2: Connection Rate Limit
+        const rateLimitResult = checkConnectionRateLimit(clientIP);
+        if (!rateLimitResult.allowed) {
+            logSecurityEvent({
+                type: 'rate_limit_connection_rejected',
+                ip: clientIP,
+                socketId: socket.id,
+                severity: 3,
+                details: rateLimitResult
+            });
+            socket.emit('error', {
+                message: '連接過於頻繁，請稍後再試',
+                retryAfter: rateLimitResult.retryAfter
+            });
+            socket.disconnect(true);
+            return;
+        }
 
         /** @type {string|null} */
         let currentUserId = null;
@@ -102,6 +168,64 @@ function initializeSocket(httpServer) {
          * Disconnects user after 30 seconds of inactivity
          * @returns {void}
          */
+        // Security wrapper for event handlers
+        function secureEventHandler(eventName, handler) {
+            return async (data) => {
+                resetHeartbeat(); // Reset timeout on activity
+
+                // Check message rate limit
+                const rateLimit = checkMessageRateLimit(socket.id, eventName);
+                if (!rateLimit.allowed) {
+                    logSecurityEvent({
+                        type: 'rate_limit_message_rejected',
+                        ip: clientIP,
+                        socketId: socket.id,
+                        userId: currentUserId,
+                        eventName,
+                        severity: 2,
+                        details: rateLimit
+                    });
+                    return socket.emit('error', {
+                        message: rateLimit.reason,
+                        retryAfter: rateLimit.retryAfter
+                    });
+                }
+
+                // Validate payload size
+                const sizeValidation = validatePayloadSize(data, eventName);
+                if (!sizeValidation.valid) {
+                    logSecurityEvent({
+                        type: 'validation_rejected',
+                        ip: clientIP,
+                        socketId: socket.id,
+                        userId: currentUserId,
+                        eventName,
+                        severity: 2,
+                        details: sizeValidation
+                    });
+                    return socket.emit('error', { message: sizeValidation.reason });
+                }
+
+                // Call the actual handler
+                try {
+                    await handler(data);
+                } catch (error) {
+                    console.error(`Error in ${eventName}:`, error);
+                    logSecurityEvent({
+                        type: 'handler_error',
+                        ip: clientIP,
+                        socketId: socket.id,
+                        userId: currentUserId,
+                        eventName,
+                        severity: 2,
+                        details: { error: error.message }
+                    });
+                    socket.emit('error', { message: '處理請求時發生錯誤' });
+                }
+            };
+        }
+
+        // Heartbeat mechanism - reset timer on any activity
         function resetHeartbeat() {
             if (heartbeatTimer) {
                 clearTimeout(heartbeatTimer);
@@ -148,8 +272,7 @@ function initializeSocket(httpServer) {
          * @param {{roomId: string, userId?: string}} data - Room and user information
          * @returns {Promise<void>}
          */
-        socket.on('join-room', async (data) => {
-            resetHeartbeat(); // Reset timeout on activity
+        socket.on('join-room', secureEventHandler('join-room', async (data) => {
             try {
                 const {roomId, userId} = data;
 
@@ -189,23 +312,64 @@ function initializeSocket(httpServer) {
                 }
 
                 // Generate user ID if not provided
-                const newUserId = validatedUserId || `user${userCount + 1}`;
+                // Fixed: Prevent race condition in user ID generation using transaction (CWE-362)
+                let newUserId = validatedUserId;
+                let user, created;
 
-                // Create or update user
-                const [user, created] = await User.findOrCreate({
-                    where: {user_id: newUserId, room_id: room.id}, defaults: {
-                        socket_id: socket.id, is_connected: true
+                // Use transaction to ensure atomic user ID generation and creation
+                const result = await sequelize.transaction(async (t) => {
+                    if (!newUserId) {
+                        // Get all existing user IDs in the room to find next available number
+                        const existingUsers = await User.findAll({
+                            where: { room_id: room.id },
+                            attributes: ['user_id'],
+                            transaction: t,
+                            lock: t.LOCK.UPDATE // Lock rows to prevent concurrent access
+                        });
+
+                        const existingUserIds = existingUsers.map(u => u.user_id);
+                        let userNumber = 1;
+
+                        // Find first available user number (handles gaps from disconnects)
+                        while (existingUserIds.includes(`user${userNumber}`)) {
+                            userNumber++;
+                        }
+
+                        newUserId = `user${userNumber}`;
                     }
+
+                    // Create or update user within transaction
+                    const [u, c] = await User.findOrCreate({
+                        where: {user_id: newUserId, room_id: room.id},
+                        defaults: {
+                            socket_id: socket.id,
+                            is_connected: true
+                        },
+                        transaction: t
+                    });
+
+                    if (!c) {
+                        await u.update({
+                            socket_id: socket.id,
+                            is_connected: true,
+                            left_at: null
+                        }, { transaction: t });
+                    }
+
+                    return { user: u, created: c };
                 });
 
-                if (!created) {
-                    await user.update({
-                        socket_id: socket.id, is_connected: true, left_at: null
-                    });
-                }
+                user = result.user;
+                created = result.created;
 
                 currentUserId = newUserId;
                 currentRoomId = room.id;
+
+                // Register connection with security middleware
+                const regResult = registerConnection(clientIP, socket.id, newUserId);
+                if (!regResult.allowed) {
+                    return socket.emit('error', { message: regResult.reason });
+                }
 
                 // Join socket room
                 socket.join(validatedRoomId);
@@ -232,15 +396,14 @@ function initializeSocket(httpServer) {
                 console.error('Error joining room:', error);
                 socket.emit('error', {message: '加入房間失敗'});
             }
-        });
+        }));
 
         /**
          * Handle create-room event
          * @param {{roomId?: string, userId?: string}} data - Room and user information
          * @returns {Promise<void>}
          */
-        socket.on('create-room', async (data) => {
-            resetHeartbeat(); // Reset timeout on activity
+        socket.on('create-room', secureEventHandler('create-room', async (data) => {
             try {
                 const {roomId, userId} = data;
 
@@ -287,6 +450,15 @@ function initializeSocket(httpServer) {
                 currentUserId = validatedUserId;
                 currentRoomId = room.id;
 
+                // Register connection with security middleware
+                const regResult = registerConnection(clientIP, socket.id, validatedUserId);
+                if (!regResult.allowed) {
+                    return socket.emit('error', { message: regResult.reason });
+                }
+
+                // Track room creation for anomaly detection
+                trackAnomaly(clientIP, 'room_creation', { roomId: validatedRoomId });
+
                 // Join socket room
                 socket.join(validatedRoomId);
 
@@ -299,15 +471,14 @@ function initializeSocket(httpServer) {
                 console.error('Error creating room:', error);
                 socket.emit('error', {message: '建立房間失敗'});
             }
-        });
+        }));
 
         /**
          * Handle WebRTC offer signaling
          * @param {{roomId: string, toUser: string, offer: RTCSessionDescriptionInit}} data - WebRTC offer data
          * @returns {Promise<void>}
          */
-        socket.on('send-offer', async (data) => {
-            resetHeartbeat(); // Reset timeout on activity
+        socket.on('send-offer', secureEventHandler('send-offer', async (data) => {
             try {
                 const {roomId, toUser, offer} = data;
 
@@ -363,15 +534,14 @@ function initializeSocket(httpServer) {
                 console.error('Error sending offer:', error);
                 socket.emit('error', {message: '發送Offer失敗'});
             }
-        });
+        }));
 
         /**
          * Handle WebRTC answer signaling
          * @param {{roomId: string, toUser: string, answer: RTCSessionDescriptionInit}} data - WebRTC answer data
          * @returns {Promise<void>}
          */
-        socket.on('send-answer', async (data) => {
-            resetHeartbeat(); // Reset timeout on activity
+        socket.on('send-answer', secureEventHandler('send-answer', async (data) => {
             try {
                 const {roomId, toUser, answer} = data;
 
@@ -427,15 +597,14 @@ function initializeSocket(httpServer) {
                 console.error('Error sending answer:', error);
                 socket.emit('error', {message: '發送Answer失敗'});
             }
-        });
+        }));
 
         /**
          * Handle WebRTC ICE candidate signaling
          * @param {{roomId: string, toUser: string, candidate: RTCIceCandidate}} data - ICE candidate data
          * @returns {Promise<void>}
          */
-        socket.on('send-ice-candidate', async (data) => {
-            resetHeartbeat(); // Reset timeout on activity
+        socket.on('send-ice-candidate', secureEventHandler('send-ice-candidate', async (data) => {
             try {
                 const {roomId, toUser, candidate} = data;
 
@@ -487,15 +656,14 @@ function initializeSocket(httpServer) {
             } catch (error) {
                 console.error('Error sending ICE candidate:', error);
             }
-        });
+        }));
 
         /**
          * Handle chat message sending
          * @param {{roomId: string, text: string}} data - Message data (text is encrypted)
          * @returns {Promise<void>}
          */
-        socket.on('send-message', async (data) => {
-            resetHeartbeat(); // Reset timeout on activity
+        socket.on('send-message', secureEventHandler('send-message', async (data) => {
             try {
                 const {roomId, text} = data;
 
@@ -507,8 +675,7 @@ function initializeSocket(httpServer) {
                     return socket.emit('error', {message: '無效的房間ID: ' + error.message});
                 }
 
-                // Validate message text (encrypted format)
-                // Note: Message is encrypted by client (format: "shift:encrypted_text")
+                // Validate message text
                 let validatedText;
                 try {
                     validatedText = validateMessageText(text);
@@ -534,22 +701,20 @@ function initializeSocket(httpServer) {
                     timestamp: new Date()
                 });
 
-                // Broadcast encrypted message to room
-                // Clients will decrypt on receipt
+                // Broadcast message to room
                 io.to(validatedRoomId).emit('receive-message', {
                     senderId: currentUserId,
                     text: validatedText,
                     timestamp: message.timestamp
                 });
 
-                // Log decrypted message for debugging (optional - comment out in production)
-                const decryptedForLog = decryptMessage(validatedText);
-                console.log(`💬 Message from ${currentUserId} in ${validatedRoomId}: ${decryptedForLog.substring(0, 50)}...`);
+                // Log message for debugging (optional - comment out in production)
+                console.log(`💬 Message from ${currentUserId} in ${validatedRoomId}: ${validatedText.substring(0, 50)}...`);
             } catch (error) {
                 console.error('Error sending message:', error);
                 socket.emit('error', {message: '發送訊息失敗'});
             }
-        });
+        }));
 
         /**
          * Handle user disconnect event
@@ -564,6 +729,18 @@ function initializeSocket(httpServer) {
                 clearTimeout(heartbeatTimer);
                 heartbeatTimer = null;
             }
+
+            // Clean up security tracking
+            unregisterConnection(clientIP, socket.id, currentUserId);
+
+            logSecurityEvent({
+                type: 'disconnect',
+                ip: clientIP,
+                socketId: socket.id,
+                userId: currentUserId,
+                severity: 1,
+                details: { reason }
+            });
 
             // Update user status in database
             if (currentRoomId && currentUserId) {
